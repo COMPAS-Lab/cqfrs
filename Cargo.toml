@@ -14,3 +14,7 @@ rayon = "1.7.0"
 
 [features]
 debug = []
+
+# bitintr is abandoned
+[patch.crates-io]
+bitintr = { git = "https://github.com/finnbear/bitintr", branch = "remove_nightly" }
