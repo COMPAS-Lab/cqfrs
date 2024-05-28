@@ -97,6 +97,7 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
     type Hasher: BuildHasher;
     type Remainder: Copy + Clone + Default + std::fmt::Debug + Into<u64>;
 
+    /// Makes a new in-memory CQF.
     fn new(
         quotient_bits: u64,
         hash_bits: u64,
@@ -104,6 +105,7 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
         hasher: Self::Hasher,
     ) -> Result<Self, CqfError>;
 
+    /// Makes a new on-disk CQF, using mmap on file.
     fn new_file(
         quotient_bits: u64,
         hash_bits: u64,
@@ -112,20 +114,25 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
         file: File,
     ) -> Result<Self, CqfError>;
 
+    /// Loads a file as a CQF, using mmap.
     fn open_file(hasher: Self::Hasher, file: File) -> Result<Self, CqfError>;
 
-    // Returns the new count of the item or an error
+    /// Inserts an item-count pair into the CQF.
+    /// Returns Ok(()) on successful insert, or a CqfError.
     fn insert<Item: Hash>(&mut self, item: Item, count: u64) -> Result<(), CqfError> {
         let hash = self.calc_hash(item);
         self.insert_by_hash(hash, count)
     }
 
-    // Returns the count and hash of item
+    /// Returns the (count, hash) of item.
     fn query<Item: Hash>(&self, item: Item) -> (u64, u64) {
         let hash = self.calc_hash(item);
         (self.query_by_hash(hash), hash)
     }
 
+    /// Sets the count of item in the CQF.
+    /// Inserts item into the CQF if it was not already present.
+    /// Returns Ok(()) on success, or a CqfError.
     fn set_count<Item: Hash>(&mut self, item: Item, count: u64) -> Result<(), CqfError> {
         if self.occupied_slots() >= self.max_occupied_slots() as u64 {
             return Err(CqfError::Filled);
@@ -177,6 +184,7 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
 
     fn is_file(&self) -> bool;
 
+    /// Returns the slice of bytes representing the CQF.
     fn serialize_to_bytes(&self) -> &[u8];
 }
 

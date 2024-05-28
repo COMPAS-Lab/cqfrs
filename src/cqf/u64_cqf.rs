@@ -358,6 +358,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         self.runtime_data.file.is_some()
     }
 
+    // Layout in memory: Metadata bytes followed by U64Blocks bytes
     fn serialize_to_bytes(&self) -> &[u8] {
         let metadata_ptr = self.metadata.0.as_ptr();
         let metadata_bytes = self.metadata.total_size_bytes;
@@ -371,6 +372,9 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
 }
 
 impl<H: BuildHasher> U64Cqf<H> {
+    // Makes metadata wrapper and blocks.
+    // if file is Some, mmaps the file
+    // else if file is None, mmaps new empty blocks in memory.
     fn make_metadata_blocks(
         quotient_bits: u64,
         hash_bits: u64,
