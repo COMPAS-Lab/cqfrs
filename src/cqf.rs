@@ -4,10 +4,14 @@ use std::{
     hash::{BuildHasher, Hash},
 };
 
+/// Owns Metadata (through a pointer)
 struct MetadataWrapper(std::ptr::Unique<Metadata>);
 
-impl MetadataWrapper {
-    pub fn new(metadata: *mut Metadata) -> Self {
+impl From<*mut Metadata> for MetadataWrapper {
+    /// Create a MetadataWrapper from a *mut Metadata.
+    /// The metadata pointer passed in must be valid, this takes ownership of
+    /// the metadata object.
+    fn from(metadata: *mut Metadata) -> Self {
         let inner = unsafe { std::ptr::Unique::new_unchecked(metadata) };
         Self(inner)
     }
@@ -15,6 +19,7 @@ impl MetadataWrapper {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+/// Metadata for the CQF
 struct Metadata {
     pub total_size_bytes: u64,
     pub num_real_slots: u64,
@@ -66,7 +71,7 @@ impl Metadata {
     }
 }
 
-
+/// RuntimeData for the CQF
 struct RuntimeData<H: BuildHasher> {
     pub file: Option<File>,
     pub hasher: H,
@@ -232,7 +237,6 @@ impl CqfMerge {
         let mut current_b = iter_b.next();
         let mut merged_cqf_current_quotient = 0u64;
         while current_a.is_some() && current_b.is_some() {
-
             let mut is_now = false;
 
             let insert_quotient: u64;
@@ -284,8 +288,6 @@ impl CqfMerge {
                 next_quotient_ =
                     Self::next_quotient(new_cqf, &current_a, &current_b, insert_quotient);
             }
-
-
 
             new_cqf.merge_insert(
                 &mut merged_cqf_current_quotient,
@@ -351,7 +353,6 @@ impl CqfMerge {
         let mut current_b = iter_b.next();
         let mut merged_cqf_current_quotient = 0u64;
         while current_a.is_some() && current_b.is_some() {
-
             let mut is_now = false;
 
             let insert_quotient: u64;
@@ -416,7 +417,6 @@ impl CqfMerge {
             );
         }
         while current_a.is_some() {
-
             let mut is_now = false;
 
             let insert_quotient: u64;
@@ -469,7 +469,6 @@ impl CqfMerge {
                 insert_remainder,
                 Some(&mut insert_count),
             );
-
 
             new_cqf.merge_insert(
                 &mut merged_cqf_current_quotient,

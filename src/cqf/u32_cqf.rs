@@ -71,7 +71,13 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
             let metadata_ptr = metadata_buffer.as_ptr() as *const Metadata;
             md = *metadata_ptr;
         }
-        let (metadata, blocks) = Self::make_metadata_blocks(md.quotient_bits, md.quotient_bits + md.remainder_bits, md.invertable(), Some(&mut file), false)?;
+        let (metadata, blocks) = Self::make_metadata_blocks(
+            md.quotient_bits,
+            md.quotient_bits + md.remainder_bits,
+            md.invertable(),
+            Some(&mut file),
+            false,
+        )?;
         let runtime_data = RuntimeData::new(Some(file), hasher, metadata.num_real_slots);
         Ok(Self {
             metadata,
@@ -160,8 +166,8 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
                 *self.blocks.slot_mut(*current_quotient + 1) = count as Remainder;
                 self.metadata.num_occupied_slots += 2;
                 *current_quotient += 2;
-                if (new_quotient+1) / 64 != (new_quotient) / 64 {
-                    *self.blocks.offset_mut(new_quotient+1) = 1;
+                if (new_quotient + 1) / 64 != (new_quotient) / 64 {
+                    *self.blocks.offset_mut(new_quotient + 1) = 1;
                 }
             } else {
                 self.metadata.num_occupied_slots += 1;
@@ -193,16 +199,25 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
         let insert_block_idx = (end_of_insert) / SLOTS_PER_BLOCK as u64;
         let insert_block_slot = (end_of_insert) % SLOTS_PER_BLOCK as u64;
         if new_quotient == 4226 && new_remainder == 253911 {
-                println!("offset for block {} is {}", quotient_block_idx, *self.blocks.offset_mut(quotient_block_idx * SLOTS_PER_BLOCK as u64));
-                println!("offset for block {} is {}", quotient_block_idx+1, *self.blocks.offset_mut((quotient_block_idx+1) * SLOTS_PER_BLOCK as u64));
-
+            println!(
+                "offset for block {} is {}",
+                quotient_block_idx,
+                *self
+                    .blocks
+                    .offset_mut(quotient_block_idx * SLOTS_PER_BLOCK as u64)
+            );
+            println!(
+                "offset for block {} is {}",
+                quotient_block_idx + 1,
+                *self
+                    .blocks
+                    .offset_mut((quotient_block_idx + 1) * SLOTS_PER_BLOCK as u64)
+            );
         }
 
-
         for i in (quotient_block_idx + 1)..=insert_block_idx {
-
-            *self.blocks.offset_mut(i * SLOTS_PER_BLOCK as u64) = ((insert_block_idx - i) * 64 + (insert_block_slot+1)) as u64;
-            
+            *self.blocks.offset_mut(i * SLOTS_PER_BLOCK as u64) =
+                ((insert_block_idx - i) * 64 + (insert_block_slot + 1)) as u64;
         }
     }
 
@@ -376,12 +391,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
     fn serialize_to_bytes(&self) -> &[u8] {
         let metadata_ptr = self.metadata.0.as_ptr();
         let metadata_bytes = self.metadata.total_size_bytes;
-        unsafe {
-            std::slice::from_raw_parts(
-                metadata_ptr as *const u8,
-                metadata_bytes as usize,
-            )
-        }
+        unsafe { std::slice::from_raw_parts(metadata_ptr as *const u8, metadata_bytes as usize) }
     }
 }
 
@@ -432,10 +442,14 @@ impl<H: BuildHasher> U32Cqf<H> {
             )
         };
         if buffer == libc::MAP_FAILED {
-            println!("MMAP ERROR {}, {:?}", std::io::Error::last_os_error().raw_os_error().unwrap(), std::io::Error::last_os_error());
+            println!(
+                "MMAP ERROR {}, {:?}",
+                std::io::Error::last_os_error().raw_os_error().unwrap(),
+                std::io::Error::last_os_error()
+            );
             return Err(CqfError::MmapError);
         }
-        let mut metadata_wrapper = MetadataWrapper::new(buffer as *mut Metadata);
+        let mut metadata_wrapper = MetadataWrapper::from(buffer as *mut Metadata);
         if new {
             *metadata_wrapper = metadata;
         }
@@ -553,7 +567,6 @@ impl<H: BuildHasher> U32Cqf<H> {
     }
 }
 
-
 pub struct U32ConsumingIterator<H: BuildHasher> {
     cqf: U32Cqf<H>,
     current_run_start: u64,
@@ -561,7 +574,6 @@ pub struct U32ConsumingIterator<H: BuildHasher> {
     end: u64,
     num: u64,
 }
-
 
 impl<H: BuildHasher> CqfIteratorImpl for U32ConsumingIterator<H> {}
 
@@ -659,7 +671,6 @@ impl<H: BuildHasher> Iterator for U32ConsumingIterator<H> {
     }
 }
 
-
 impl<H: BuildHasher> U32Cqf<H> {
     pub fn iter(&self) -> U32RefIterator<H> {
         self.blocks.advise_seq();
@@ -711,7 +722,6 @@ impl<'a, H: BuildHasher + 'a> IntoIterator for U32Cqf<H> {
     }
 }
 
-
 impl<H: BuildHasher> CqfIteratorImpl for U32RefIterator<'_, H> {}
 
 impl<H: BuildHasher> Drop for U32Cqf<H> {
@@ -724,7 +734,11 @@ impl<H: BuildHasher> Drop for U32Cqf<H> {
             error = libc::munmap(metadata_ptr as *mut libc::c_void, bytes as usize);
         }
         if error != 0 {
-            println!("Error unmapping metadata: {} {:?}", error, std::io::Error::last_os_error());
+            println!(
+                "Error unmapping metadata: {} {:?}",
+                error,
+                std::io::Error::last_os_error()
+            );
         }
     }
 }
