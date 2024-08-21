@@ -4,10 +4,14 @@ use std::{
     hash::{BuildHasher, Hash},
 };
 
+/// Owns Metadata (through a pointer)
 struct MetadataWrapper(std::ptr::Unique<Metadata>);
 
-impl MetadataWrapper {
-    pub fn new(metadata: *mut Metadata) -> Self {
+impl From<*mut Metadata> for MetadataWrapper {
+    /// Create a MetadataWrapper from a *mut Metadata.
+    /// The metadata pointer passed in must be valid, this takes ownership of
+    /// the metadata object.
+    fn from(metadata: *mut Metadata) -> Self {
         let inner = unsafe { std::ptr::Unique::new_unchecked(metadata) };
         Self(inner)
     }
@@ -15,6 +19,7 @@ impl MetadataWrapper {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+/// Metadata for the CQF
 struct Metadata {
     pub total_size_bytes: u64,
     pub num_real_slots: u64,
@@ -72,7 +77,7 @@ impl Metadata {
     }
 }
 
-
+/// RuntimeData for the CQF
 struct RuntimeData<H: BuildHasher> {
     pub file: Option<File>,
     pub hasher: H,
@@ -103,6 +108,7 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
     type Hasher: BuildHasher;
     type Remainder: Copy + Clone + Default + std::fmt::Debug + Into<u64>;
 
+    /// Makes a new in-memory CQF.
     fn new(
         quotient_bits: u64,
         hash_bits: u64,
@@ -110,6 +116,7 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
         hasher: Self::Hasher,
     ) -> Result<Self, CqfError>;
 
+    /// Makes a new on-disk CQF, using mmap on file.
     fn new_file(
         quotient_bits: u64,
         hash_bits: u64,
@@ -118,20 +125,25 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
         file: File,
     ) -> Result<Self, CqfError>;
 
+    /// Loads a file as a CQF, using mmap.
     fn open_file(hasher: Self::Hasher, file: File) -> Result<Self, CqfError>;
 
-    // Returns the new count of the item or an error
+    /// Inserts an item-count pair into the CQF.
+    /// Returns Ok(()) on successful insert, or a CqfError.
     fn insert<Item: Hash>(&mut self, item: Item, count: u64) -> Result<(), CqfError> {
         let hash = self.calc_hash(item);
         self.insert_by_hash(hash, count)
     }
 
-    // Returns the count and hash of item
+    /// Returns the (count, hash) of item.
     fn query<Item: Hash>(&self, item: Item) -> (u64, u64) {
         let hash = self.calc_hash(item);
         (self.query_by_hash(hash), hash)
     }
 
+    /// Sets the count of item in the CQF.
+    /// Inserts item into the CQF if it was not already present.
+    /// Returns Ok(()) on success, or a CqfError.
     fn set_count<Item: Hash>(&mut self, item: Item, count: u64) -> Result<(), CqfError> {
         if self.occupied_slots() >= self.max_occupied_slots() as u64 {
             return Err(CqfError::Filled);
@@ -183,6 +195,7 @@ pub trait CountingQuotientFilter: IntoIterator + Sized {
 
     fn is_file(&self) -> bool;
 
+    /// Returns the slice of bytes representing the CQF.
     fn serialize_to_bytes(&self) -> &[u8];
 }
 
@@ -282,8 +295,6 @@ impl CqfMerge {
                 next_quotient_ =
                     Self::next_quotient(new_cqf, &current_a, &current_b, insert_quotient);
             }
-
-
 
             new_cqf.merge_insert(
                 &mut merged_cqf_current_quotient,
@@ -467,7 +478,6 @@ impl CqfMerge {
                 insert_remainder,
                 Some(&mut insert_count),
             );
-
 
             new_cqf.merge_insert(
                 &mut merged_cqf_current_quotient,

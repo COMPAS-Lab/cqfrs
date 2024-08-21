@@ -34,7 +34,6 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
 
         let num_slots = 1u64 << quotient_bits;
 
-
         let runtime_data = RuntimeData::new(None, hasher, num_slots);
         Ok(Self {
             metadata,
@@ -80,7 +79,13 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
             let metadata_ptr = metadata_buffer.as_ptr() as *const Metadata;
             md = *metadata_ptr;
         }
-        let (metadata, blocks) = Self::make_metadata_blocks(md.quotient_bits, md.quotient_bits + md.remainder_bits, md.invertable(), Some(&mut file), false)?;
+        let (metadata, blocks) = Self::make_metadata_blocks(
+            md.quotient_bits,
+            md.quotient_bits + md.remainder_bits,
+            md.invertable(),
+            Some(&mut file),
+            false,
+        )?;
 
         let num_slots = 1u64 << md.quotient_bits;
 
@@ -361,19 +366,18 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         self.runtime_data.file.is_some()
     }
 
+    // Layout in memory: Metadata bytes followed by U64Blocks bytes
     fn serialize_to_bytes(&self) -> &[u8] {
         let metadata_ptr = self.metadata.0.as_ptr();
         let metadata_bytes = self.metadata.total_size_bytes;
-        unsafe {
-            std::slice::from_raw_parts(
-                metadata_ptr as *const u8,
-                metadata_bytes as usize,
-            )
-        }
+        unsafe { std::slice::from_raw_parts(metadata_ptr as *const u8, metadata_bytes as usize) }
     }
 }
 
 impl<H: BuildHasher> U64Cqf<H> {
+    // Makes metadata wrapper and blocks.
+    // if file is Some, mmaps the file
+    // else if file is None, mmaps new empty blocks in memory.
     fn make_metadata_blocks(
         quotient_bits: u64,
         hash_bits: u64,
@@ -421,10 +425,14 @@ impl<H: BuildHasher> U64Cqf<H> {
             )
         };
         if buffer == libc::MAP_FAILED {
-            println!("MMAP ERROR {}, {:?}", std::io::Error::last_os_error().raw_os_error().unwrap(), std::io::Error::last_os_error());
+            println!(
+                "MMAP ERROR {}, {:?}",
+                std::io::Error::last_os_error().raw_os_error().unwrap(),
+                std::io::Error::last_os_error()
+            );
             return Err(CqfError::MmapError);
         }
-        let mut metadata_wrapper = MetadataWrapper::new(buffer as *mut Metadata);
+        let mut metadata_wrapper = MetadataWrapper::from(buffer as *mut Metadata);
         if new {
             *metadata_wrapper = metadata;
         }
@@ -477,7 +485,7 @@ impl<H: BuildHasher> U64Cqf<H> {
                         if npreceding_empties == 1 && second / 64 < i {
                             break;
                         }
-/*
+                        /*
                         let current_offset = *self.blocks.offset_mut(i * 64);
                         *self.blocks.offset_mut(i * 64) = match current_offset.checked_add((ninserts - npreceding_empties)) {
                             None => panic!("offset addition overflow"),
@@ -551,8 +559,6 @@ impl<H: BuildHasher> U64Cqf<H> {
     }
 }
 
-
-
 pub struct U64ConsumingIterator<H: BuildHasher> {
     cqf: U64Cqf<H>,
     current_run_start: u64,
@@ -567,7 +573,7 @@ impl<'a, H: BuildHasher> Iterator for U64RefIterator<'a, H> {
         if self.current_quotient >= self.end {
             self.cqf.blocks.advise_normal();
             return None;
-        }   
+        }
         let mut current_remainder: u64 = 0;
         let mut current_count: u64 = 0;
         self.cqf.blocks.decode_counter(
@@ -603,7 +609,6 @@ impl<'a, H: BuildHasher> Iterator for U64RefIterator<'a, H> {
         return Some((current_count, current_hash));
     }
 }
-
 
 impl<H: BuildHasher> Iterator for U64ConsumingIterator<H> {
     type Item = (u64, u64);
@@ -657,7 +662,6 @@ pub struct U64RefIterator<'a, H: BuildHasher> {
     end: u64,
     num: u64,
 }
-
 
 impl<H: BuildHasher> U64Cqf<H> {
     pub fn iter(&self) -> U64RefIterator<H> {
@@ -720,7 +724,11 @@ impl<H: BuildHasher> Drop for U64Cqf<H> {
             error = libc::munmap(metadata_ptr as *mut libc::c_void, bytes as usize);
         }
         if error != 0 {
-            println!("Error unmapping metadata: {} {:?}", error, std::io::Error::last_os_error());
+            println!(
+                "Error unmapping metadata: {} {:?}",
+                error,
+                std::io::Error::last_os_error()
+            );
         }
     }
 }

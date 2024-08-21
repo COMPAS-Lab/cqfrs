@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 // use cqfrs::{BuildReversableHasher, CountingQuotientFilter, ReversibleHasher};
 use cqfrs::*;
 use rand::Rng;
@@ -20,7 +21,6 @@ fn main() {
         BuildReversableHasher::<46>::default(),
     )
     .expect("failed to make cqf");
-    
 
     // let mut cqf2 = U32Cqf::new(
     //     LOGN_SLOTS,
@@ -74,7 +74,8 @@ fn main() {
         .open("temp.qf")
         .expect("failed to open file");
 
-    let cqf1 = U32Cqf::open_file(BuildReversableHasher::<46>::default(), file).expect("failed to make cqf");
+    let cqf1 = U32Cqf::open_file(BuildReversableHasher::<46>::default(), file)
+        .expect("failed to make cqf");
 
     // CqfMerge::merge(cqf1.into_iter(), cqf2.into_iter(), &mut cqf3);
 
@@ -99,7 +100,7 @@ fn test_init(num_elements: usize, hash_mask: u64) -> Vec<u64> {
     let mut randgen = rand::thread_rng();
     for _ in 0..num_elements {
         let num: u64 = randgen.gen();
-        numbers.push((num & hash_mask)%10000);
+        numbers.push((num & hash_mask) % 10000);
     }
     numbers
 }
