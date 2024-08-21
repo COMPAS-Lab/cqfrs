@@ -188,6 +188,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         let insert_block_idx = (end_of_insert) / SLOTS_PER_BLOCK as u64;
         for i in (quotient_block_idx + 1)..=insert_block_idx {
             *self.blocks.offset_mut(i * SLOTS_PER_BLOCK as u64) += slots;
+            self.metadata.largest_offset = self.metadata.largest_offset.max(self.blocks.offset(i * SLOTS_PER_BLOCK as u64));
         }
     }
 
@@ -196,7 +197,9 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         if count == 0 {
             return Ok(());
         } // nothing to do
-        if self.occupied_slots() >= self.max_occupied_slots() {
+        if self.occupied_slots() >= self.max_occupied_slots() || self.metadata.largest_offset >= self.metadata.largest_possible_offset {
+            println!("largest offset reached, returning full. largest offset {}, max offset {}", self.metadata.largest_offset, self.metadata.largest_possible_offset);
+        
             return Err(CqfError::Filled);
         }
         let (quotient, remainder) = self.quotient_remainder_from_hash(hash);
@@ -453,6 +456,7 @@ impl<H: BuildHasher> U64Cqf<H> {
                         }
                         // println!("setting offset for block");
                         *self.blocks.offset_mut(i * 64) = self.blocks.offset(i * 64) + 1;
+                        self.metadata.largest_offset = self.metadata.largest_offset.max(self.blocks.offset(i * 64))
                     }
                 }
                 2 => {
@@ -481,6 +485,7 @@ impl<H: BuildHasher> U64Cqf<H> {
                         };*/
 
                         *self.blocks.offset_mut(i * 64) += (ninserts - npreceding_empties) as u64 ;
+                        self.metadata.largest_offset = self.metadata.largest_offset.max(self.blocks.offset(i * SLOTS_PER_BLOCK as u64))
                     }
                 }
                 _ => panic!("unexpected number of inserts!"),

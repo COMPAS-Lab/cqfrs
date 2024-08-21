@@ -23,6 +23,8 @@ struct Metadata {
     pub quotient_bits: u64,
     pub remainder_bits: u64,
     pub invertable: u64,
+    pub largest_offset: u64,
+    pub largest_possible_offset: u64,
 }
 
 impl std::ops::Deref for MetadataWrapper {
@@ -46,6 +48,8 @@ impl Metadata {
         let remainder_bits = hash_bits - quotient_bits;
         let invertable = if invertable { 1 } else { 0 };
         let total_size_bytes = std::mem::size_of::<Metadata>() as u64;
+        let largest_offset = 0;
+        let largest_possible_offset = ((num_slots as f64).sqrt()) as u64;
         Self {
             total_size_bytes,
             num_real_slots,
@@ -54,6 +58,8 @@ impl Metadata {
             quotient_bits,
             remainder_bits,
             invertable,
+            largest_offset,
+            largest_possible_offset,
         }
     }
 
@@ -78,7 +84,7 @@ impl<H: BuildHasher> RuntimeData<H> {
         Self {
             file,
             hasher,
-            max_occupied_slots: ((num_real_slots as f64) * 0.95) as u64,
+            max_occupied_slots: ((num_real_slots as f64) * 0.80) as u64,
         }
     }
 }
@@ -225,7 +231,7 @@ impl CqfMerge {
         let mut merged_cqf_current_quotient = 0u64;
         while current_a.is_some() && current_b.is_some() {
 
-            let mut is_now = false;
+           // let mut is_now = false;
 
             let insert_quotient: u64;
             let insert_remainder: u64;
@@ -240,9 +246,9 @@ impl CqfMerge {
                     let a_val = current_a.as_ref().unwrap();
                     let b_val = current_b.as_ref().unwrap();
 
-                    if a_val.1 == 2215894999 {
-                        is_now = true;
-                    }
+                    //if a_val.1 == 2215894999 {
+                    //    is_now = true;
+                    //}
 
                     let av = new_cqf.quotient_remainder_from_hash(a_val.1);
                     (a_quotient, a_remainder) = (av.0, av.1.into());
@@ -293,7 +299,7 @@ impl CqfMerge {
             let insert_count: u64;
             let next_quotient_: u64;
 
-            let mut is_now = false;
+            //let mut is_now = false;
 
             {
                 let av = new_cqf.quotient_remainder_from_hash(current_a.as_ref().unwrap().1);
@@ -344,7 +350,7 @@ impl CqfMerge {
         let mut merged_cqf_current_quotient = 0u64;
         while current_a.is_some() && current_b.is_some() {
 
-            let mut is_now = false;
+          //  let mut is_now = false;
 
             let insert_quotient: u64;
             let insert_remainder: u64;
@@ -409,7 +415,7 @@ impl CqfMerge {
         }
         while current_a.is_some() {
 
-            let mut is_now = false;
+          //  let mut is_now = false;
 
             let insert_quotient: u64;
             let insert_remainder: u64;
