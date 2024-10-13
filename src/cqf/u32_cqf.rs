@@ -198,22 +198,6 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
         let quotient_block_idx = new_quotient / SLOTS_PER_BLOCK as u64;
         let insert_block_idx = (end_of_insert) / SLOTS_PER_BLOCK as u64;
         let insert_block_slot = (end_of_insert) % SLOTS_PER_BLOCK as u64;
-        if new_quotient == 4226 && new_remainder == 253911 {
-            println!(
-                "offset for block {} is {}",
-                quotient_block_idx,
-                *self
-                    .blocks
-                    .offset_mut(quotient_block_idx * SLOTS_PER_BLOCK as u64)
-            );
-            println!(
-                "offset for block {} is {}",
-                quotient_block_idx + 1,
-                *self
-                    .blocks
-                    .offset_mut((quotient_block_idx + 1) * SLOTS_PER_BLOCK as u64)
-            );
-        }
 
         for i in (quotient_block_idx + 1)..=insert_block_idx {
             *self.blocks.offset_mut(i * SLOTS_PER_BLOCK as u64) =
