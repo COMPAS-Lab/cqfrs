@@ -82,19 +82,19 @@ pub trait Blocks {
         }
     }
 
-    fn run_end_by_block(&self, _block: usize, _slot: usize) -> u64 {
-        panic!("problem");
-        // let runend = self.runends_by_block(block);
-        // if slot == 0 {
-        //     runend
-        // } else {
-        //     runend & ((1 << slot) - 1)
-        // }
-    }
+    // fn run_end_by_block(&self, _block: usize, _slot: usize) -> u64 {
+    //     panic!("problem");
+    //     // let runend = self.runends_by_block(block);
+    //     // if slot == 0 {
+    //     //     runend
+    //     // } else {
+    //     //     runend & ((1 << slot) - 1)
+    //     // }
+    // }
 
-    fn advise_seq(&self);
+    // fn advise_seq(&self);
 
-    fn advise_normal(&self);
+    // fn advise_normal(&self);
 
     fn bytes_needed(num_blocks: usize) -> usize;
 
@@ -103,9 +103,9 @@ pub trait Blocks {
     fn offset(&self, quotient: u64) -> Offset;
     fn offset_mut(&mut self, quotient: u64) -> &mut Offset;
 
-    fn occupieds(&self, quotient: u64) -> u64;
-    fn runends(&self, quotient: u64) -> u64;
-    fn counts(&self, quotient: u64) -> u64;
+    // fn occupieds(&self, quotient: u64) -> u64;
+    // fn runends(&self, quotient: u64) -> u64;
+    // fn counts(&self, quotient: u64) -> u64;
 
     fn slot(&self, quotient: u64) -> &Self::Remainder;
     fn slot_mut(&mut self, quotient: u64) -> &mut Self::Remainder;
@@ -125,7 +125,7 @@ pub trait Blocks {
 
     fn occupieds_by_block(&self, block: usize) -> u64;
     fn runends_by_block(&self, block: usize) -> u64;
-    fn counts_by_block(&self, block: usize) -> u64;
+    // fn counts_by_block(&self, block: usize) -> u64;
 
     // By block and slot
     fn slot_by_block(&self, block: usize, slot: usize) -> &Self::Remainder;
@@ -188,7 +188,7 @@ pub trait Blocks {
         (block_index * SLOTS_PER_BLOCK + slot_index as usize) as u64
     }
 
-    fn madvise_dont_need(&self, current_quotient: u64);
+    // fn madvise_dont_need(&self, current_quotient: u64);
 
     fn num_blocks(&self) -> usize;
 

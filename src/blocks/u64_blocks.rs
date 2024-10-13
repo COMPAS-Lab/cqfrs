@@ -1,4 +1,4 @@
-use libc::c_void;
+// use libc::c_void;
 
 use super::{Blocks, Offset};
 use crate::SLOTS_PER_BLOCK;
@@ -67,23 +67,23 @@ impl Blocks for U64Blocks {
         self.offset_by_block_mut(block_index)
     }
 
-    #[inline(always)]
-    fn occupieds(&self, quotient: u64) -> u64 {
-        let (block_index, _) = Self::split_quotient(quotient);
-        self.occupieds_by_block(block_index)
-    }
+    // #[inline(always)]
+    // fn occupieds(&self, quotient: u64) -> u64 {
+    //     let (block_index, _) = Self::split_quotient(quotient);
+    //     self.occupieds_by_block(block_index)
+    // }
 
-    #[inline(always)]
-    fn runends(&self, quotient: u64) -> u64 {
-        let (block_index, _) = Self::split_quotient(quotient);
-        self.runends_by_block(block_index)
-    }
+    // #[inline(always)]
+    // fn runends(&self, quotient: u64) -> u64 {
+    //     let (block_index, _) = Self::split_quotient(quotient);
+    //     self.runends_by_block(block_index)
+    // }
 
-    #[inline(always)]
-    fn counts(&self, quotient: u64) -> u64 {
-        let (block_index, _) = Self::split_quotient(quotient);
-        self.counts_by_block(block_index)
-    }
+    // #[inline(always)]
+    // fn counts(&self, quotient: u64) -> u64 {
+    //     let (block_index, _) = Self::split_quotient(quotient);
+    //     self.counts_by_block(block_index)
+    // }
 
     #[inline(always)]
     fn slot(&self, quotient: u64) -> &Self::Remainder {
@@ -147,10 +147,10 @@ impl Blocks for U64Blocks {
         self[block].runends
     }
 
-    #[inline(always)]
-    fn counts_by_block(&self, block: usize) -> u64 {
-        self[block].counts
-    }
+    // #[inline(always)]
+    // fn counts_by_block(&self, block: usize) -> u64 {
+    //     self[block].counts
+    // }
 
     #[inline(always)]
     fn slot_by_block(&self, block: usize, slot: usize) -> &Self::Remainder {
@@ -209,41 +209,41 @@ impl Blocks for U64Blocks {
         self.len
     }
 
-    fn madvise_dont_need(&self, current_quotient: u64) {
-        let ptr_start = self.ptr.as_ptr() as *mut c_void;
-        let aligned_ptr_start = unsafe { ptr_start.offset(ptr_start.align_offset(4096) as isize) };
-        let ptr_end =
-            unsafe { (self.slot(current_quotient) as *const Self::Remainder).offset(-4096) };
-        if ptr_end as usize > aligned_ptr_start as usize {
-            let len = ptr_end as usize - aligned_ptr_start as usize;
-            let madv_result = unsafe { libc::madvise(aligned_ptr_start, len, libc::MADV_DONTNEED) };
-            if madv_result != 0 {
-                panic!("madvise failed: {}", madv_result);
-            }
-        }
-    }
+    // fn madvise_dont_need(&self, current_quotient: u64) {
+    //     let ptr_start = self.ptr.as_ptr() as *mut c_void;
+    //     let aligned_ptr_start = unsafe { ptr_start.offset(ptr_start.align_offset(4096) as isize) };
+    //     let ptr_end =
+    //         unsafe { (self.slot(current_quotient) as *const Self::Remainder).offset(-4096) };
+    //     if ptr_end as usize > aligned_ptr_start as usize {
+    //         let len = ptr_end as usize - aligned_ptr_start as usize;
+    //         let madv_result = unsafe { libc::madvise(aligned_ptr_start, len, libc::MADV_DONTNEED) };
+    //         if madv_result != 0 {
+    //             panic!("madvise failed: {}", madv_result);
+    //         }
+    //     }
+    // }
 
-    fn advise_seq(&self) {
-        let ptr_start = self.ptr.as_ptr() as *mut c_void;
-        let aligned_ptr_start = unsafe { ptr_start.offset(ptr_start.align_offset(4096) as isize) };
-        let ptr_end = unsafe { (self.ptr.as_ptr() as *const Block).offset(self.len as isize) };
-        let len = ptr_end as usize - aligned_ptr_start as usize;
-        let madv_result = unsafe { libc::madvise(aligned_ptr_start, len, libc::MADV_SEQUENTIAL) };
-        if madv_result != 0 {
-            panic!("madvise failed: {}", madv_result);
-        }
-    }
+    // fn advise_seq(&self) {
+    //     let ptr_start = self.ptr.as_ptr() as *mut c_void;
+    //     let aligned_ptr_start = unsafe { ptr_start.offset(ptr_start.align_offset(4096) as isize) };
+    //     let ptr_end = unsafe { (self.ptr.as_ptr() as *const Block).offset(self.len as isize) };
+    //     let len = ptr_end as usize - aligned_ptr_start as usize;
+    //     let madv_result = unsafe { libc::madvise(aligned_ptr_start, len, libc::MADV_SEQUENTIAL) };
+    //     if madv_result != 0 {
+    //         panic!("madvise failed: {}", madv_result);
+    //     }
+    // }
 
-    fn advise_normal(&self) {
-        let ptr_start = self.ptr.as_ptr() as *mut c_void;
-        let aligned_ptr_start = unsafe { ptr_start.offset(ptr_start.align_offset(4096) as isize) };
-        let ptr_end = unsafe { (self.ptr.as_ptr() as *const Block).offset(self.len as isize) };
-        let len = ptr_end as usize - aligned_ptr_start as usize;
-        let madv_result = unsafe { libc::madvise(aligned_ptr_start, len, libc::MADV_RANDOM) };
-        if madv_result != 0 {
-            panic!("madvise failed: {}", madv_result);
-        }
-    }
+    // fn advise_normal(&self) {
+    //     let ptr_start = self.ptr.as_ptr() as *mut c_void;
+    //     let aligned_ptr_start = unsafe { ptr_start.offset(ptr_start.align_offset(4096) as isize) };
+    //     let ptr_end = unsafe { (self.ptr.as_ptr() as *const Block).offset(self.len as isize) };
+    //     let len = ptr_end as usize - aligned_ptr_start as usize;
+    //     let madv_result = unsafe { libc::madvise(aligned_ptr_start, len, libc::MADV_RANDOM) };
+    //     if madv_result != 0 {
+    //         panic!("madvise failed: {}", madv_result);
+    //     }
+    // }
 
     fn len(&self) -> usize {
         self.len

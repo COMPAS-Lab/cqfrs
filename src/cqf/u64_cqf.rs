@@ -564,14 +564,14 @@ pub struct U64ConsumingIterator<H: BuildHasher> {
     current_run_start: u64,
     current_quotient: u64,
     end: u64,
-    num: u64,
+    // num: u64,
 }
 
 impl<'a, H: BuildHasher> Iterator for U64RefIterator<'a, H> {
     type Item = (u64, u64);
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_quotient >= self.end {
-            self.cqf.blocks.advise_normal();
+            // self.cqf.blocks.advise_normal();
             return None;
         }
         let mut current_remainder: u64 = 0;
@@ -614,7 +614,7 @@ impl<H: BuildHasher> Iterator for U64ConsumingIterator<H> {
     type Item = (u64, u64);
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_quotient >= self.end {
-            self.cqf.blocks.advise_normal();
+            // self.cqf.blocks.advise_normal();
             return None;
         }
         let mut current_remainder: u64 = 0;
@@ -660,7 +660,7 @@ pub struct U64RefIterator<'a, H: BuildHasher> {
     current_run_start: u64,
     current_quotient: u64,
     end: u64,
-    num: u64,
+    // num: u64,
 }
 
 impl<H: BuildHasher> U64Cqf<H> {
@@ -671,7 +671,7 @@ impl<H: BuildHasher> U64Cqf<H> {
                 current_run_start: 0,
                 current_quotient: 1,
                 end: 0,
-                num: 0,
+                // num: 0,
             };
         }
         let current_quotient = self.blocks.find_first_occupied_slot();
@@ -681,7 +681,7 @@ impl<H: BuildHasher> U64Cqf<H> {
             current_run_start: current_quotient,
             current_quotient,
             end: num_slots,
-            num: 0,
+            // num: 0,
         }
     }
 }
@@ -697,7 +697,7 @@ impl<'a, H: BuildHasher + 'a> IntoIterator for U64Cqf<H> {
                 current_run_start: 0,
                 current_quotient: 1,
                 end: 0,
-                num: 0,
+                // num: 0,
             };
         }
         let current_quotient = self.blocks.find_first_occupied_slot();
@@ -707,7 +707,7 @@ impl<'a, H: BuildHasher + 'a> IntoIterator for U64Cqf<H> {
             current_run_start: current_quotient,
             current_quotient,
             end: num_slots,
-            num: 0,
+            // num: 0,
         }
     }
 }
