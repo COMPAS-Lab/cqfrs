@@ -14,6 +14,15 @@ use std::{
 /// Fixed size counter u64 quotient filter
 use std::{hash, os::fd::AsRawFd};
 
+enum InsertOperation {
+    /// Insert into empty slot
+    InsertEmpty,
+    /// Append to slot
+    Append,
+    /// Insert into slot
+    Insert,
+}
+
 pub struct U64Cqf<H: BuildHasher> {
     metadata: MetadataWrapper,
     blocks: U64Blocks,
@@ -193,7 +202,10 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         let insert_block_idx = (end_of_insert) / SLOTS_PER_BLOCK as u64;
         for i in (quotient_block_idx + 1)..=insert_block_idx {
             *self.blocks.offset_mut(i * SLOTS_PER_BLOCK as u64) += slots;
-            self.metadata.largest_offset = self.metadata.largest_offset.max(self.blocks.offset(i * SLOTS_PER_BLOCK as u64));
+            self.metadata.largest_offset = self
+                .metadata
+                .largest_offset
+                .max(self.blocks.offset(i * SLOTS_PER_BLOCK as u64));
         }
     }
 
@@ -202,9 +214,14 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         if count == 0 {
             return Ok(());
         } // nothing to do
-        if self.occupied_slots() >= self.max_occupied_slots() || self.metadata.largest_offset >= self.metadata.largest_possible_offset {
-            println!("largest offset reached, returning full. largest offset {}, max offset {}", self.metadata.largest_offset, self.metadata.largest_possible_offset);
-        
+        if self.occupied_slots() >= self.max_occupied_slots()
+            || self.metadata.largest_offset >= self.metadata.largest_possible_offset
+        {
+            println!(
+                "largest offset reached, returning full. largest offset {}, max offset {}",
+                self.metadata.largest_offset, self.metadata.largest_possible_offset
+            );
+
             return Err(CqfError::Filled);
         }
         let (quotient, remainder) = self.quotient_remainder_from_hash(hash);
@@ -228,7 +245,14 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         } else {
             // let mut runstart_index = self.blocks.run_start(quotient);
             if !self.blocks.is_occupied(quotient) {
-                self.insert_and_shift(0, quotient, remainder, count, runstart_index, 0);
+                self.insert_and_shift(
+                    InsertOperation::InsertEmpty,
+                    quotient,
+                    remainder,
+                    count,
+                    runstart_index,
+                    0,
+                );
             } else {
                 let (mut current_remainder, mut current_count): (u64, u64) = (0, 0);
                 let mut qptr = runstart_index;
@@ -245,13 +269,20 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
                 }
 
                 if current_remainder < remainder {
-                    self.insert_and_shift(1, quotient, remainder, count, qptr + 1, 0);
+                    self.insert_and_shift(
+                        InsertOperation::Append,
+                        quotient,
+                        remainder,
+                        count,
+                        qptr + 1,
+                        0,
+                    );
                 } else if current_remainder == remainder {
                     self.insert_and_shift(
                         if self.blocks.is_runend(qptr as u64) {
-                            1
+                            InsertOperation::Append
                         } else {
-                            2
+                            InsertOperation::Insert
                         },
                         quotient,
                         remainder,
@@ -260,7 +291,14 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
                         qptr - runstart_index as u64 + 1,
                     );
                 } else {
-                    self.insert_and_shift(2, quotient, remainder, count, runstart_index, 0);
+                    self.insert_and_shift(
+                        InsertOperation::Insert,
+                        quotient,
+                        remainder,
+                        count,
+                        runstart_index,
+                        0,
+                    );
                 }
             }
             self.blocks.set_occupied(quotient, true);
@@ -321,7 +359,11 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
                 return Ok(());
             }
             self.insert_and_shift(
-                if self.blocks.is_runend(qptr) { 1 } else { 2 },
+                if self.blocks.is_runend(qptr) {
+                    InsertOperation::Append
+                } else {
+                    InsertOperation::Insert
+                },
                 quotient,
                 remainder,
                 count,
@@ -443,7 +485,7 @@ impl<H: BuildHasher> U64Cqf<H> {
 
     fn insert_and_shift(
         &mut self,
-        operation: u64,
+        operation: InsertOperation,
         quotient: u64,
         remainder: u64,
         count: u64,
@@ -464,7 +506,8 @@ impl<H: BuildHasher> U64Cqf<H> {
                         }
                         // println!("setting offset for block");
                         *self.blocks.offset_mut(i * 64) = self.blocks.offset(i * 64) + 1;
-                        self.metadata.largest_offset = self.metadata.largest_offset.max(self.blocks.offset(i * 64))
+                        self.metadata.largest_offset =
+                            self.metadata.largest_offset.max(self.blocks.offset(i * 64))
                     }
                 }
                 2 => {
@@ -492,15 +535,18 @@ impl<H: BuildHasher> U64Cqf<H> {
                             Some(v) => v,
                         };*/
 
-                        *self.blocks.offset_mut(i * 64) += (ninserts - npreceding_empties) as u64 ;
-                        self.metadata.largest_offset = self.metadata.largest_offset.max(self.blocks.offset(i * SLOTS_PER_BLOCK as u64))
+                        *self.blocks.offset_mut(i * 64) += (ninserts - npreceding_empties) as u64;
+                        self.metadata.largest_offset = self
+                            .metadata
+                            .largest_offset
+                            .max(self.blocks.offset(i * SLOTS_PER_BLOCK as u64))
                     }
                 }
                 _ => panic!("unexpected number of inserts!"),
             }
 
             match operation {
-                0 => {
+                InsertOperation::InsertEmpty => {
                     if count == 1 {
                         self.blocks.set_runend(insert_index, true);
                     } else {
@@ -508,7 +554,7 @@ impl<H: BuildHasher> U64Cqf<H> {
                         self.blocks.set_runend(insert_index + 1, true);
                     }
                 }
-                1 => {
+                InsertOperation::Append => {
                     if noverwrites == 0 {
                         self.blocks.set_runend(insert_index - 1, false);
                     }
@@ -519,7 +565,7 @@ impl<H: BuildHasher> U64Cqf<H> {
                         self.blocks.set_runend(insert_index + 1, true);
                     }
                 }
-                2 => {
+                InsertOperation::Insert => {
                     if count == 1 {
                         self.blocks.set_runend(insert_index, false);
                     } else {
@@ -527,7 +573,6 @@ impl<H: BuildHasher> U64Cqf<H> {
                         self.blocks.set_runend(insert_index + 1, false);
                     }
                 }
-                _ => panic!("invalid operation!"),
             }
         }
         *self.blocks.slot_mut(insert_index) = remainder;

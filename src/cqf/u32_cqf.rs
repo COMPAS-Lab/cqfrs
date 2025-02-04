@@ -12,6 +12,16 @@ use std::{
 };
 /// Fixed size counter u64 quotient filter
 use std::{hash, os::fd::AsRawFd};
+
+enum InsertOperation {
+    /// Insert into empty slot
+    InsertEmpty,
+    /// Append to slot
+    Append,
+    /// Insert into slot
+    Insert,
+}
+
 pub struct U32Cqf<H: BuildHasher> {
     metadata: MetadataWrapper,
     blocks: U32Blocks,
@@ -234,7 +244,14 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
         } else {
             // let mut runstart_index = self.blocks.run_start(quotient);
             if !self.blocks.is_occupied(quotient) {
-                self.insert_and_shift(0, quotient, remainder, count, runstart_index, 0);
+                self.insert_and_shift(
+                    InsertOperation::InsertEmpty,
+                    quotient,
+                    remainder,
+                    count,
+                    runstart_index,
+                    0,
+                );
             } else {
                 let (mut current_remainder, mut current_count): (Remainder, u64) = (0, 0);
                 let mut qptr = runstart_index;
@@ -251,13 +268,20 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
                 }
 
                 if current_remainder < remainder {
-                    self.insert_and_shift(1, quotient, remainder, count, qptr + 1, 0);
+                    self.insert_and_shift(
+                        InsertOperation::Append,
+                        quotient,
+                        remainder,
+                        count,
+                        qptr + 1,
+                        0,
+                    );
                 } else if current_remainder == remainder {
                     self.insert_and_shift(
                         if self.blocks.is_runend(qptr as u64) {
-                            1
+                            InsertOperation::Append
                         } else {
-                            2
+                            InsertOperation::Insert
                         },
                         quotient,
                         remainder,
@@ -266,7 +290,14 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
                         qptr - runstart_index as u64 + 1,
                     );
                 } else {
-                    self.insert_and_shift(2, quotient, remainder, count, runstart_index, 0);
+                    self.insert_and_shift(
+                        InsertOperation::Insert,
+                        quotient,
+                        remainder,
+                        count,
+                        runstart_index,
+                        0,
+                    );
                 }
             }
             self.blocks.set_occupied(quotient, true);
@@ -327,7 +358,11 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
                 return Ok(());
             }
             self.insert_and_shift(
-                if self.blocks.is_runend(qptr) { 1 } else { 2 },
+                if self.blocks.is_runend(qptr) {
+                    InsertOperation::Append
+                } else {
+                    InsertOperation::Insert
+                },
                 quotient,
                 remainder,
                 count,
@@ -444,7 +479,7 @@ impl<H: BuildHasher> U32Cqf<H> {
 
     fn insert_and_shift(
         &mut self,
-        operation: u64,
+        operation: InsertOperation,
         quotient: u64,
         remainder: Remainder,
         count: u64,
@@ -492,7 +527,7 @@ impl<H: BuildHasher> U32Cqf<H> {
             }
 
             match operation {
-                0 => {
+                InsertOperation::InsertEmpty => {
                     if count == 1 {
                         self.blocks.set_runend(insert_index, true);
                     } else {
@@ -500,7 +535,7 @@ impl<H: BuildHasher> U32Cqf<H> {
                         self.blocks.set_runend(insert_index + 1, true);
                     }
                 }
-                1 => {
+                InsertOperation::Append => {
                     if noverwrites == 0 {
                         self.blocks.set_runend(insert_index - 1, false);
                     }
@@ -511,7 +546,7 @@ impl<H: BuildHasher> U32Cqf<H> {
                         self.blocks.set_runend(insert_index + 1, true);
                     }
                 }
-                2 => {
+                InsertOperation::Insert => {
                     if count == 1 {
                         self.blocks.set_runend(insert_index, false);
                     } else {
@@ -519,7 +554,6 @@ impl<H: BuildHasher> U32Cqf<H> {
                         self.blocks.set_runend(insert_index + 1, false);
                     }
                 }
-                _ => panic!("invalid operation!"),
             }
         }
         *self.blocks.slot_mut(insert_index) = remainder;
