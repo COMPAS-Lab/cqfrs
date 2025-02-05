@@ -37,8 +37,45 @@ pub use reversible_hasher::*;
 //     Filled,
 // }
 
+#[inline]
+fn pdep(val: u64, mut mask: u64) -> u64 {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if is_x86_feature_detected!("bmi2") {
+            return unsafe { _pdep_bmi2(val, mask) };
+        }
+    }
+
+    // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_pdep_u64&ig_expand=4908
+    let mut res = 0;
+    let mut bb: u64 = 1;
+    loop {
+        if mask == 0 {
+            break;
+        }
+        if (val & bb) != 0 {
+            res |= mask & mask.wrapping_neg();
+        }
+        mask &= mask - 1;
+        bb = bb.wrapping_add(bb);
+    }
+    res
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "bmi2")]
+unsafe fn _pdep_bmi2(val: u64, mask: u64) -> u64 {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::_pdep_u64;
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::_pdep_u64;
+
+    _pdep_u64(val, mask)
+}
+
 mod utils {
-    use bitintr::{Pdep, Tzcnt};
+
+    use crate::pdep;
 
     pub fn bitrank(val: u64, pos: u64) -> u64 {
         if pos == 63 {
@@ -53,18 +90,18 @@ mod utils {
 
     pub fn popcntv(val: u64, ignore: u64) -> u64 {
         if ignore % 64 != 0 {
-            (val & !(bitmask(ignore as u64 % 64))).count_ones() as u64
+            (val & !(bitmask(ignore % 64))).count_ones() as u64
         } else {
             val.count_ones() as u64
         }
     }
 
     pub fn bitselect(val: u64, rank: u64) -> u64 {
-        (1 << rank as u64).pdep(val).tzcnt()
+        pdep(1 << rank, val).trailing_zeros() as u64
     }
 
     pub fn bitselectv(val: u64, ignore: u64, rank: u64) -> u64 {
-        bitselect(val & !(bitmask(ignore as u64 % 64)), rank)
+        bitselect(val & !(bitmask(ignore % 64)), rank)
     }
 
     pub fn bitmask(nbits: u64) -> u64 {
