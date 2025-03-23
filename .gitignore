@@ -1,1 +1,9 @@
 /target
+/.cargo
+
+temp.qf
+
+# valgrind
+callgrind.out*
+cachegrind.out*
+massif.out*

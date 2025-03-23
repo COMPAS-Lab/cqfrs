@@ -1,24 +1,32 @@
-#[allow(unused_imports)]
-// use cqfrs::{BuildReversableHasher, CountingQuotientFilter, ReversibleHasher};
-use cqfrs::*;
-use rand::Rng;
-use std::{collections::HashMap, time::Duration};
+mod common;
 
-const LOGN_SLOTS: u64 = 26;
+use std::io::Write;
 
-const HASH_BITS: u64 = 46;
-const TEST_MASK: u64 = (1 << HASH_BITS) - 1;
+use common::{slots_threshold, test_init};
+use cqfrs::{BuildReversableHasher, CountingQuotientFilter, ReversibleHasher, U32Cqf};
+use hashbrown::HashMap;
 
-fn main() {
-    let num_elements: usize = ((1 << (LOGN_SLOTS)) as f32 * 0.94) as usize;
+#[test]
+fn simple() {
+    const LOGN_SLOTS: u64 = 26;
+
+    const HASH_BITS: u64 = 46;
+    const TEST_MASK: u64 = (1 << HASH_BITS) - 1;
+
+    const NUM_ELEMENTS: usize = ((1 << (LOGN_SLOTS)) as f32 * 0.94) as usize;
     // let num_elemnts: usize = ((1 << (LOGN_SLOTS-3)) as f32 * 0.90) as usize;
-    let numbers = test_init(num_elements, TEST_MASK);
+    dbg!(NUM_ELEMENTS);
+
+    let numbers: Vec<_> = test_init(NUM_ELEMENTS, TEST_MASK)
+        .iter()
+        .map(|n| n % 10000)
+        .collect();
 
     let mut cqf1 = U32Cqf::new(
         LOGN_SLOTS,
         HASH_BITS,
         true,
-        BuildReversableHasher::<46>::default(),
+        BuildReversableHasher::<HASH_BITS>,
     )
     .expect("failed to make cqf");
 
@@ -42,30 +50,36 @@ fn main() {
 
     let mut temp = HashMap::new();
 
-    for i in 0..num_elements {
-        let count = temp.get(&(numbers[i] & TEST_MASK)).unwrap_or(&0) + 1;
-        temp.insert(numbers[i] & TEST_MASK, count);
+    for num in numbers.iter() {
+        *temp.entry(num & TEST_MASK).or_insert(0) += 1;
     }
-    println!("Map built");
-    // std::thread::sleep(Duration::from_secs(5));
+    println!(
+        "Map built (max count = {}, min count = {})",
+        temp.values().max().unwrap(),
+        temp.values().min().unwrap()
+    );
 
-    println!("Starting insert");
+    eprintln!("Starting insert");
     let now = std::time::Instant::now();
-    for i in 0..num_elements / 2 {
+    for i in 0..NUM_ELEMENTS / 2 {
         cqf1.insert(numbers[i] & TEST_MASK, 1)
             .expect("insert failed!");
     }
-    for i in num_elements / 2..num_elements {
+    for i in NUM_ELEMENTS / 2..NUM_ELEMENTS {
         cqf1.insert(numbers[i] & TEST_MASK, 1)
             .expect("insert failed!");
     }
-    println!("Insert took {:?}", now.elapsed());
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Insert took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / NUM_ELEMENTS as u32
+    );
 
-    use std::io::Write;
     let bytes = cqf1.serialize_to_bytes();
     let temp_file = std::fs::File::create("temp.qf").expect("failed to create file");
     let mut writer = std::io::BufWriter::new(temp_file);
-    writer.write_all(&bytes).expect("failed to write to file");
+    writer.write_all(bytes).expect("failed to write to file");
     writer.flush().expect("failed to flush file");
 
     let file = std::fs::OpenOptions::new()
@@ -74,150 +88,100 @@ fn main() {
         .open("temp.qf")
         .expect("failed to open file");
 
-    let cqf1 = U32Cqf::open_file(BuildReversableHasher::<46>::default(), file)
-        .expect("failed to make cqf");
+    let cqf1 =
+        U32Cqf::open_file(BuildReversableHasher::<HASH_BITS>, file).expect("failed to make cqf");
 
     // CqfMerge::merge(cqf1.into_iter(), cqf2.into_iter(), &mut cqf3);
 
+    eprintln!("Starting query");
+    let now = std::time::Instant::now();
     for (&k, &v) in temp.iter() {
         let count = cqf1.query(k);
         assert_eq!(count.0, v);
     }
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Query took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / temp.len() as u32
+    );
 
+    eprintln!("Starting iter");
     let now = std::time::Instant::now();
-    println!("Starting iter");
+    let mut items = 0;
     for (c, h) in cqf1.into_iter() {
+        items += 1;
+        let og = ReversibleHasher::<HASH_BITS>::invert_hash(h);
+        let count = temp.get(&og).unwrap();
+        assert_eq!(count, &c);
+    }
+    assert_eq!(items, temp.len());
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Iter took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / temp.len() as u32
+    );
+}
+
+#[test]
+fn consuming_iter() {
+    const LOGN_SLOTS: u64 = 32;
+
+    let elements = test_init(slots_threshold(LOGN_SLOTS, 0.9), u64::MAX);
+    dbg!(elements.len());
+    let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
+        .expect("failed to make cqf");
+
+    let mut temp: HashMap<u64, u64> = HashMap::new();
+    for (i, el) in elements.iter().copied().enumerate() {
+        cqf.insert(el, 1)
+            .inspect_err(|e| {
+                eprintln!("error at {}/{} inserts: {:?}", i, elements.len(), e);
+            })
+            .expect("insert failed!");
+        *temp.entry(el).or_insert(0) += 1;
+    }
+
+    for (&k, &v) in temp.iter() {
+        let (count, _hash) = cqf.query(k);
+        assert_eq!(count, v);
+    }
+
+    for (c, h) in cqf.into_iter() {
         let og = ReversibleHasher::<46>::invert_hash(h);
         let count = temp.get(&og).unwrap();
         assert_eq!(count, &c);
     }
-    println!("Iter took {:?}", now.elapsed());
 }
 
-fn test_init(num_elements: usize, hash_mask: u64) -> Vec<u64> {
-    let num_elements = num_elements as usize;
-    let mut numbers: Vec<u64> = Vec::with_capacity(num_elements);
-    let mut randgen = rand::thread_rng();
-    for _ in 0..num_elements {
-        let num: u64 = randgen.gen();
-        numbers.push((num & hash_mask) % 10000);
-    }
-    numbers
-}
+#[test]
+fn ref_iter() {
+    const LOGN_SLOTS: u64 = 32;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    let elements = test_init(slots_threshold(LOGN_SLOTS, 0.9), u64::MAX);
+    let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
+        .expect("failed to make cqf");
 
-    fn test_init(lognslots: u64, hash_mask: u64) -> Vec<u64> {
-        let num_elemnts: usize = ((1u64 << (lognslots)) as f64 * 0.90) as usize;
-        let mut numbers: Vec<u64> = Vec::with_capacity(num_elemnts);
-        let mut randgen = rand::thread_rng();
-        for _ in 0..num_elemnts {
-            let num: u64 = randgen.gen();
-            numbers.push(num & hash_mask);
-        }
-        numbers
+    let mut temp: HashMap<u64, u64> = HashMap::new();
+    for (i, el) in elements.iter().copied().enumerate() {
+        cqf.insert(el, 1)
+            .inspect_err(|e| {
+                eprintln!("error at {}/{} inserts: {:?}", i, elements.len(), e);
+            })
+            .expect("insert failed!");
+        *temp.entry(el).or_insert(0) += 1;
     }
 
-    #[test]
-    fn test_u64_con_iter() {
-        const LOGN_SLOTS: u64 = 29;
-        let elements = test_init(LOGN_SLOTS, u64::MAX);
-        let mut cqf = U64Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
-            .expect("failed to make cqf");
-
-        let mut temp: HashMap<u64, u64> = HashMap::new();
-        for i in 0..elements.len() {
-            cqf.insert(elements[i], 1).expect("insert failed!");
-            temp.insert(elements[i], temp.get(&elements[i]).unwrap_or(&0) + 1);
-        }
-
-        for (&k, &v) in temp.iter() {
-            let count = cqf.query(k);
-            assert_eq!(count.0, v);
-        }
-
-        for (c, h) in cqf.into_iter() {
-            let og = ReversibleHasher::<46>::invert_hash(h);
-            let count = temp.get(&og).unwrap();
-            assert_eq!(count, &c);
-        }
+    for (&k, &v) in temp.iter() {
+        let (count, _hash) = cqf.query(k);
+        assert_eq!(count, v);
     }
 
-    #[test]
-    fn test_u64_ref_iter() {
-        const LOGN_SLOTS: u64 = 29;
-        let elements = test_init(LOGN_SLOTS, u64::MAX);
-        let mut cqf = U64Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
-            .expect("failed to make cqf");
-
-        let mut temp: HashMap<u64, u64> = HashMap::new();
-        for i in 0..elements.len() {
-            cqf.insert(elements[i], 1).expect("insert failed!");
-            temp.insert(elements[i], temp.get(&elements[i]).unwrap_or(&0) + 1);
-        }
-
-        for (&k, &v) in temp.iter() {
-            let count = cqf.query(k);
-            assert_eq!(count.0, v);
-        }
-
-        for (c, h) in cqf.iter() {
-            let og = ReversibleHasher::<46>::invert_hash(h);
-            let count = temp.get(&og).unwrap();
-            assert_eq!(count, &c);
-        }
-    }
-
-    #[test]
-    fn test_u32_con_iter() {
-        const LOGN_SLOTS: u64 = 32;
-        let elements = test_init(LOGN_SLOTS, u64::MAX);
-        let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
-            .expect("failed to make cqf");
-
-        let mut temp: HashMap<u64, u64> = HashMap::new();
-        for i in 0..elements.len() {
-            cqf.insert(elements[i], 1).expect("insert failed!");
-            temp.insert(elements[i], temp.get(&elements[i]).unwrap_or(&0) + 1);
-        }
-
-        for (&k, &v) in temp.iter() {
-            let count = cqf.query(k);
-            assert_eq!(count.0, v);
-        }
-
-        for (c, h) in cqf.into_iter() {
-            let og = ReversibleHasher::<46>::invert_hash(h);
-            let count = temp.get(&og).unwrap();
-            assert_eq!(count, &c);
-        }
-    }
-
-    #[test]
-    fn test_u32_ref_iter() {
-        const LOGN_SLOTS: u64 = 32;
-        let elements = test_init(LOGN_SLOTS, u64::MAX);
-        let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
-            .expect("failed to make cqf");
-
-        let mut temp: HashMap<u64, u64> = HashMap::new();
-        for i in 0..elements.len() {
-            cqf.insert(elements[i], 1).expect("insert failed!");
-            temp.insert(elements[i], temp.get(&elements[i]).unwrap_or(&0) + 1);
-        }
-
-        for (&k, &v) in temp.iter() {
-            let count = cqf.query(k);
-            assert_eq!(count.0, v);
-        }
-
-        for (c, h) in cqf.iter() {
-            let og = ReversibleHasher::<46>::invert_hash(h);
-            let count = temp.get(&og).unwrap();
-            assert_eq!(count, &c);
-        }
+    for (c, h) in cqf.iter() {
+        let og = ReversibleHasher::<46>::invert_hash(h);
+        let count = temp.get(&og).unwrap();
+        assert_eq!(count, &c);
     }
 }
 
