@@ -2,8 +2,8 @@ mod common;
 
 use std::io::Write;
 
-use common::{slots_threshold, test_init};
-use cqfrs::{BuildReversableHasher, CountingQuotientFilter, ReversibleHasher, U32Cqf};
+use common::{map_merge, slots_threshold, test_init, test_init_map};
+use cqfrs::{BuildReversableHasher, CountingQuotientFilter, CqfMerge, ReversibleHasher, U32Cqf};
 use hashbrown::HashMap;
 
 #[test]
@@ -122,6 +122,85 @@ fn simple() {
         elapsed,
         elapsed / temp.len() as u32
     );
+}
+
+#[test]
+fn simple_merge() {
+    const LOGN_SLOTS: u64 = 20;
+    const HASH_BITS: u64 = 46;
+
+    const NUM_ELEMENTS_1: usize = slots_threshold(LOGN_SLOTS, 0.1);
+    const NUM_ELEMENTS_2: usize = slots_threshold(LOGN_SLOTS, 0.01);
+
+    eprintln!("building maps");
+    let mut elements_1 = test_init_map(NUM_ELEMENTS_1, 2);
+    let elements_2 = test_init_map(NUM_ELEMENTS_2, 2);
+    eprintln!("maps built");
+    dbg!(elements_1.len(), elements_2.len());
+
+    let mut cqf1 = U32Cqf::new(
+        LOGN_SLOTS,
+        HASH_BITS,
+        true,
+        BuildReversableHasher::<HASH_BITS>,
+    )
+    .expect("failed to make cqf");
+
+    let mut cqf2 = U32Cqf::new(
+        LOGN_SLOTS,
+        HASH_BITS,
+        true,
+        BuildReversableHasher::<HASH_BITS>,
+    )
+    .expect("failed to make cqf");
+
+    eprintln!("Starting insert 1");
+    let now = std::time::Instant::now();
+    for (&k, &v) in elements_1.iter() {
+        cqf1.insert(k, v).expect("insert failed!");
+    }
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Insert 1 took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / NUM_ELEMENTS_1 as u32
+    );
+
+    eprintln!("Starting insert 2");
+    let now = std::time::Instant::now();
+
+    for (&k, &v) in elements_2.iter() {
+        cqf2.insert(k, v).expect("insert failed!");
+    }
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Insert 2 took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / NUM_ELEMENTS_2 as u32
+    );
+
+    // doesn't work with LOGN_SLOTS + 1, but seems like it should
+    let mut cqf3 =
+        U32Cqf::new(32, 64, true, BuildReversableHasher::<HASH_BITS>).expect("failed to make cqf");
+
+    eprintln!("Starting merge");
+    let now = std::time::Instant::now();
+    CqfMerge::merge(cqf1.into_iter(), cqf2.into_iter(), &mut cqf3);
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Merge took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / (NUM_ELEMENTS_1 + NUM_ELEMENTS_2) as u32
+    );
+
+    map_merge(&mut elements_1, elements_2);
+    let mut elements = elements_1.iter().collect::<Vec<_>>();
+    elements.sort_by_key(|(k, _)| *k);
+
+    for (&k, &v) in elements_1.iter() {
+        let (count, _) = cqf3.query(k);
+        assert_eq!(count, v, "{}={}", k, v);
+    }
 }
 
 #[test]
