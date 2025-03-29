@@ -9,7 +9,7 @@ use super::{
 };
 use crate::blocks::u32_blocks::*;
 use crate::blocks::Blocks;
-use crate::utils::{bitrank, bitselect};
+use crate::utils::{ffs, ffsv, saturating_bitmask};
 
 enum InsertOperation {
     /// Insert into empty slot
@@ -165,7 +165,9 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
             return;
         }
 
-        let remainder: Remainder = new_remainder.try_into().unwrap();
+        let remainder: Remainder = new_remainder
+            .try_into()
+            .expect("new remainder is too large");
         self.blocks.set_occupied(new_quotient, true);
         if *current_quotient <= new_quotient {
             *current_quotient = new_quotient;
@@ -210,7 +212,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
 
         for i in (quotient_block_idx + 1)..=insert_block_idx {
             *self.blocks.offset_mut(i * SLOTS_PER_BLOCK as u64) =
-                ((insert_block_idx - i) * 64 + (insert_block_slot + 1)) as u64;
+                (insert_block_idx - i) * 64 + (insert_block_slot + 1);
         }
     }
 
@@ -256,8 +258,8 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
                 let mut qptr = runstart_index;
                 self.blocks
                     .decode_counter(&mut qptr, &mut current_remainder, &mut current_count);
-                while current_remainder < remainder && !self.blocks.is_runend(qptr as u64) {
-                    runstart_index = (qptr + 1) as u64;
+                while current_remainder < remainder && !self.blocks.is_runend(qptr) {
+                    runstart_index = qptr + 1;
                     qptr = runstart_index;
                     self.blocks.decode_counter(
                         &mut qptr,
@@ -277,7 +279,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
                     );
                 } else if current_remainder == remainder {
                     self.insert_and_shift(
-                        if self.blocks.is_runend(qptr as u64) {
+                        if self.blocks.is_runend(qptr) {
                             InsertOperation::Append
                         } else {
                             InsertOperation::Insert
@@ -286,7 +288,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
                         remainder,
                         current_count + count,
                         runstart_index,
-                        qptr - runstart_index as u64 + 1,
+                        qptr - runstart_index + 1,
                     );
                 } else {
                     self.insert_and_shift(
@@ -333,7 +335,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
             }
             runstart_index = qptr + 1;
         }
-        return 0;
+        0
     }
 
     fn set_count_by_hash(&mut self, hash: u64, count: u64) -> Result<(), CqfError> {
@@ -392,9 +394,9 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
     }
 
     fn quotient_remainder_from_hash(&self, hash: u64) -> (u64, Remainder) {
-        let quotient =
-            (hash >> self.metadata.remainder_bits) & ((1 << self.metadata.quotient_bits) - 1);
-        let remainder = hash & ((1 << self.metadata.remainder_bits) - 1);
+        let quotient = (hash >> self.metadata.remainder_bits)
+            & saturating_bitmask(self.metadata.quotient_bits);
+        let remainder = hash & saturating_bitmask(self.metadata.remainder_bits);
         (quotient, remainder as Remainder)
     }
 
@@ -409,7 +411,7 @@ impl<H: BuildHasher> CountingQuotientFilter for U32Cqf<H> {
     fn serialize_to_bytes(&self) -> &[u8] {
         let metadata_ptr = self.metadata.0.as_ptr();
         let metadata_bytes = self.metadata.total_size_bytes;
-        unsafe { std::slice::from_raw_parts(metadata_ptr as *const u8, metadata_bytes as usize) }
+        unsafe { std::slice::from_raw_parts(metadata_ptr.cast(), metadata_bytes as usize) }
     }
 }
 
@@ -439,7 +441,7 @@ impl<H: BuildHasher> U32Cqf<H> {
                 fd = f.as_raw_fd();
                 mmap_flags = libc::MAP_SHARED;
                 if new {
-                    f.set_len(metadata.total_size_bytes as u64)
+                    f.set_len(metadata.total_size_bytes)
                         .map_err(|_| CqfError::FileError)?;
                 }
             }
@@ -462,7 +464,9 @@ impl<H: BuildHasher> U32Cqf<H> {
         if buffer == libc::MAP_FAILED {
             println!(
                 "MMAP ERROR {}, {:?}",
-                std::io::Error::last_os_error().raw_os_error().unwrap(),
+                std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .expect("unreachable"),
                 std::io::Error::last_os_error()
             );
             return Err(CqfError::MmapError);
@@ -471,7 +475,7 @@ impl<H: BuildHasher> U32Cqf<H> {
         if new {
             *metadata_wrapper = metadata;
         }
-        let blocks_ptr = unsafe { buffer.offset(std::mem::size_of::<Metadata>() as isize) };
+        let blocks_ptr = unsafe { buffer.add(std::mem::size_of::<Metadata>()) };
         let blocks = U32Blocks::new(blocks_ptr as *mut u8, metadata_wrapper.num_blocks as usize);
         Ok((metadata_wrapper, blocks))
     }
@@ -519,7 +523,7 @@ impl<H: BuildHasher> U32Cqf<H> {
                         if npreceding_empties == 1 && second / 64 < i {
                             break;
                         }
-                        *self.blocks.offset_mut(i * 64) += (ninserts - npreceding_empties) as u64;
+                        *self.blocks.offset_mut(i * 64) += ninserts - npreceding_empties;
                     }
                 }
                 _ => panic!("unexpected number of inserts!"),
@@ -625,23 +629,20 @@ impl<'a, H: BuildHasher> Iterator for U32RefIterator<'a, H> {
         }
         self.current_quotient += 1;
         let mut block_index = self.current_run_start as usize / SLOTS_PER_BLOCK;
-        let mut rank = bitrank(
+        let mut next_run_slot = ffsv(
             self.cqf.blocks.occupieds_by_block(block_index),
-            self.current_run_start % SLOTS_PER_BLOCK as u64,
-        );
-        let mut next_run_slot = bitselect(self.cqf.blocks.occupieds_by_block(block_index), rank);
+            (self.current_run_start % SLOTS_PER_BLOCK as u64) + 1,
+        )
+        .unwrap_or(64);
         if next_run_slot == 64 {
-            rank = 0;
             while next_run_slot == 64 && block_index < self.cqf.blocks.len() - 1 {
                 block_index += 1;
-                next_run_slot = bitselect(self.cqf.blocks.occupieds_by_block(block_index), rank);
+                next_run_slot = ffs(self.cqf.blocks.occupieds_by_block(block_index)).unwrap_or(64);
             }
         }
         self.current_run_start = block_index as u64 * SLOTS_PER_BLOCK as u64 + next_run_slot;
-        if self.current_quotient < self.current_run_start {
-            self.current_quotient = self.current_run_start;
-        }
-        return Some((current_count, current_hash));
+        self.current_quotient = std::cmp::max(self.current_quotient, self.current_run_start);
+        Some((current_count, current_hash))
     }
 }
 
@@ -668,24 +669,23 @@ impl<H: BuildHasher> Iterator for U32ConsumingIterator<H> {
         }
         self.current_quotient += 1;
         let mut block_index = self.current_run_start as usize / SLOTS_PER_BLOCK;
-        let mut rank = bitrank(
-            self.cqf.blocks.occupieds_by_block(block_index),
-            self.current_run_start % SLOTS_PER_BLOCK as u64,
-        );
         // if rank == 64, need to go to next block
-        let mut next_run_slot = bitselect(self.cqf.blocks.occupieds_by_block(block_index), rank);
+        let mut next_run_slot = ffsv(
+            self.cqf.blocks.occupieds_by_block(block_index),
+            (self.current_run_start % SLOTS_PER_BLOCK as u64) + 1,
+        )
+        .unwrap_or(64);
         if next_run_slot == 64 {
-            rank = 0;
             while next_run_slot == 64 && block_index < self.cqf.blocks.len() - 1 {
                 block_index += 1;
-                next_run_slot = bitselect(self.cqf.blocks.occupieds_by_block(block_index), rank);
+                next_run_slot = ffs(self.cqf.blocks.occupieds_by_block(block_index)).unwrap_or(64);
             }
         }
         self.current_run_start = block_index as u64 * SLOTS_PER_BLOCK as u64 + next_run_slot;
         if self.current_quotient < self.current_run_start {
             self.current_quotient = self.current_run_start;
         }
-        return Some((current_count, current_hash));
+        Some((current_count, current_hash))
     }
 }
 
@@ -713,7 +713,7 @@ impl<H: BuildHasher> U32Cqf<H> {
     }
 }
 
-impl<'a, H: BuildHasher + 'a> IntoIterator for U32Cqf<H> {
+impl<H: BuildHasher> IntoIterator for U32Cqf<H> {
     type Item = (u64, u64);
     type IntoIter = U32ConsumingIterator<H>;
 
@@ -747,10 +747,7 @@ impl<H: BuildHasher> Drop for U32Cqf<H> {
         // println!("Dropping U32Cqf");
         let metadata_ptr = self.metadata.0.as_ptr();
         let bytes = self.metadata.total_size_bytes;
-        let error;
-        unsafe {
-            error = libc::munmap(metadata_ptr as *mut libc::c_void, bytes as usize);
-        }
+        let error = unsafe { libc::munmap(metadata_ptr.cast(), bytes as usize) };
         if error != 0 {
             println!(
                 "Error unmapping metadata: {} {:?}",

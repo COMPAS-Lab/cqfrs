@@ -1,6 +1,6 @@
 type Offset = u64;
 
-use crate::utils::{bitmask, bitrank, bitselect, bitselectv, popcntv};
+use crate::utils::{bitrank, bitselectv, ffs, saturating_bitmask, wrapping_popcntv};
 use crate::SLOTS_PER_BLOCK;
 
 // pub mod u64_soa_blocks;
@@ -11,9 +11,9 @@ pub trait Blocks {
     type Remainder;
     #[inline(always)]
     fn split_quotient(quotient: u64) -> (usize, usize) {
-        let block_index: usize = (quotient / crate::SLOTS_PER_BLOCK as u64) as usize;
-        let slot_index: usize = (quotient % crate::SLOTS_PER_BLOCK as u64) as usize;
-        (block_index as usize, slot_index as usize)
+        let block_index = (quotient / crate::SLOTS_PER_BLOCK as u64) as usize;
+        let slot_index = (quotient % crate::SLOTS_PER_BLOCK as u64) as usize;
+        (block_index, slot_index)
     }
 
     fn run_start(&self, quotient: u64) -> u64 {
@@ -29,14 +29,16 @@ pub trait Blocks {
     #[inline]
     fn run_end(&self, quotient: u64) -> u64 {
         let (block_index, slot_index) = Self::split_quotient(quotient);
+        #[allow(clippy::unnecessary_cast)] // Offset may not be u64
         let block_offset: u64 = self.offset_by_block(block_index).into();
-        let intrablock_rank = bitrank(self.occupieds_by_block(block_index), slot_index as u64);
+        let intrablock_rank =
+            unsafe { bitrank(self.occupieds_by_block(block_index), slot_index as u64) };
 
         if intrablock_rank == 0 {
             if block_offset <= slot_index as u64 {
                 return quotient;
             } else {
-                return 64 * block_index as u64 + block_offset as u64 - 1;
+                return 64 * block_index as u64 + block_offset - 1;
             }
         }
 
@@ -54,7 +56,7 @@ pub trait Blocks {
                 return quotient;
             } else {
                 loop {
-                    runend_rank -= popcntv(
+                    runend_rank -= wrapping_popcntv(
                         self.runends_by_block(runend_block_index),
                         runend_ignore_bits,
                     );
@@ -143,13 +145,14 @@ pub trait Blocks {
     }
 
     fn offset_lower_bound_by_block(&self, block: usize, slot: usize) -> u64 {
-        let occupieds = self.occupieds_by_block(block) & bitmask((slot + 1) as u64);
+        let occupieds = self.occupieds_by_block(block) & saturating_bitmask((slot + 1) as u64);
         let offset_u64 = self.offset_by_block(block) as u64;
         if offset_u64 <= slot as u64 {
-            let runends = (self.runends_by_block(block) & bitmask((slot) as u64)) >> offset_u64;
-            return (occupieds.count_ones() - runends.count_ones()) as u64;
+            let runends =
+                (self.runends_by_block(block) & saturating_bitmask(slot as u64)) >> offset_u64;
+            (occupieds.count_ones() - runends.count_ones()) as u64
         } else {
-            return (offset_u64 + occupieds.count_ones() as u64) - slot as u64;
+            (offset_u64 + occupieds.count_ones() as u64) - slot as u64
         }
     }
 
@@ -172,18 +175,16 @@ pub trait Blocks {
         if self.is_occupied_by_block(block_index, 0) {
             return 0;
         }
-        let mut slot_index = bitselect(self.occupieds_by_block(block_index), 0);
-        if slot_index == 64 {
-            while slot_index == 64 && block_index < self.num_blocks() - 1 {
-                // May be worth doing a count ones to see if there are any occupied slots before calling function
-                block_index += 1;
-                slot_index = bitselect(self.occupieds_by_block(block_index), 0);
+
+        while block_index < self.num_blocks() - 1 {
+            if let Some(slot) = ffs(self.occupieds_by_block(block_index)) {
+                return (block_index * SLOTS_PER_BLOCK + slot as usize) as u64;
             }
+
+            block_index += 1;
         }
-        if block_index == self.num_blocks() - 1 && slot_index == 64 {
-            return 0;
-        }
-        (block_index * SLOTS_PER_BLOCK + slot_index as usize) as u64
+
+        0
     }
 
     // fn madvise_dont_need(&self, current_quotient: u64);

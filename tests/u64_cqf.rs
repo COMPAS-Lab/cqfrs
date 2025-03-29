@@ -1,14 +1,14 @@
 mod common;
 
 use common::{slots_threshold, test_init};
-use cqfrs::{BuildReversableHasher, CountingQuotientFilter, ReversibleHasher, U64Cqf};
+use cqfrs::{BuildReversibleHasher, CountingQuotientFilter, ReversibleHasher, U64Cqf};
 use hashbrown::HashMap;
 
 #[test]
 fn consuming_iter() {
     const LOGN_SLOTS: u64 = 29;
     let elements = test_init(slots_threshold(LOGN_SLOTS, 0.9), u64::MAX);
-    let mut cqf = U64Cqf::new(LOGN_SLOTS, 46, true, BuildReversableHasher::<46>::default())
+    let mut cqf = U64Cqf::new(LOGN_SLOTS, 46, true, BuildReversibleHasher::<46>::default())
         .expect("failed to make cqf");
 
     let mut temp: HashMap<u64, u64> = HashMap::new();
@@ -33,7 +33,7 @@ fn consuming_iter() {
 fn ref_iter() {
     const LOGN_SLOTS: u64 = 29;
     let elements = test_init(slots_threshold(LOGN_SLOTS, 0.9), u64::MAX);
-    let mut cqf = U64Cqf::new(LOGN_SLOTS, 46, true, BuildReversableHasher::<46>::default())
+    let mut cqf = U64Cqf::new(LOGN_SLOTS, 46, true, BuildReversibleHasher::<46>::default())
         .expect("failed to make cqf");
 
     let mut temp: HashMap<u64, u64> = HashMap::new();

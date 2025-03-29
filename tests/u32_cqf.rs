@@ -3,7 +3,7 @@ mod common;
 use std::io::Write;
 
 use common::{map_merge, slots_threshold, test_init, test_init_map};
-use cqfrs::{BuildReversableHasher, CountingQuotientFilter, CqfMerge, ReversibleHasher, U32Cqf};
+use cqfrs::{BuildReversibleHasher, CountingQuotientFilter, CqfMerge, ReversibleHasher, U32Cqf};
 use hashbrown::HashMap;
 
 #[test]
@@ -26,7 +26,7 @@ fn simple() {
         LOGN_SLOTS,
         HASH_BITS,
         true,
-        BuildReversableHasher::<HASH_BITS>,
+        BuildReversibleHasher::<HASH_BITS>,
     )
     .expect("failed to make cqf");
 
@@ -89,7 +89,7 @@ fn simple() {
         .expect("failed to open file");
 
     let cqf1 =
-        U32Cqf::open_file(BuildReversableHasher::<HASH_BITS>, file).expect("failed to make cqf");
+        U32Cqf::open_file(BuildReversibleHasher::<HASH_BITS>, file).expect("failed to make cqf");
 
     // CqfMerge::merge(cqf1.into_iter(), cqf2.into_iter(), &mut cqf3);
 
@@ -142,7 +142,7 @@ fn simple_merge() {
         LOGN_SLOTS,
         HASH_BITS,
         true,
-        BuildReversableHasher::<HASH_BITS>,
+        BuildReversibleHasher::<HASH_BITS>,
     )
     .expect("failed to make cqf");
 
@@ -150,7 +150,7 @@ fn simple_merge() {
         LOGN_SLOTS,
         HASH_BITS,
         true,
-        BuildReversableHasher::<HASH_BITS>,
+        BuildReversibleHasher::<HASH_BITS>,
     )
     .expect("failed to make cqf");
 
@@ -181,7 +181,7 @@ fn simple_merge() {
 
     // doesn't work with LOGN_SLOTS + 1, but seems like it should
     let mut cqf3 =
-        U32Cqf::new(32, 64, true, BuildReversableHasher::<HASH_BITS>).expect("failed to make cqf");
+        U32Cqf::new(32, 64, true, BuildReversibleHasher::<HASH_BITS>).expect("failed to make cqf");
 
     eprintln!("Starting merge");
     let now = std::time::Instant::now();
@@ -212,12 +212,29 @@ fn simple_merge() {
 }
 
 #[test]
+fn iter_empty() {
+    let cqf = U32Cqf::new(20, 46, true, BuildReversibleHasher::<46>).expect("failed to make cqf");
+
+    for (c, h) in cqf.iter() {
+        assert_eq!(c, 0);
+        assert_eq!(h, 0);
+    }
+
+    assert_eq!(cqf.occupied_slots(), 0);
+
+    for (c, h) in cqf.into_iter() {
+        assert_eq!(c, 0);
+        assert_eq!(h, 0);
+    }
+}
+
+#[test]
 fn consuming_iter() {
     const LOGN_SLOTS: u64 = 32;
 
     let elements = test_init(slots_threshold(LOGN_SLOTS, 0.9), u64::MAX);
     dbg!(elements.len());
-    let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
+    let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversibleHasher::<46>::default())
         .expect("failed to make cqf");
 
     let mut temp: HashMap<u64, u64> = HashMap::new();
@@ -247,7 +264,7 @@ fn ref_iter() {
     const LOGN_SLOTS: u64 = 32;
 
     let elements = test_init(slots_threshold(LOGN_SLOTS, 0.9), u64::MAX);
-    let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversableHasher::<46>::default())
+    let mut cqf = U32Cqf::new(LOGN_SLOTS, 64, true, BuildReversibleHasher::<46>::default())
         .expect("failed to make cqf");
 
     let mut temp: HashMap<u64, u64> = HashMap::new();

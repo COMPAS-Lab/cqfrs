@@ -90,7 +90,7 @@ impl Blocks for U32Blocks {
     #[inline(always)]
     fn slot(&self, quotient: u64) -> &Self::Remainder {
         let (block_index, slot_index) = Self::split_quotient(quotient);
-        &self.slot_by_block(block_index, slot_index)
+        self.slot_by_block(block_index, slot_index)
     }
 
     #[inline(always)]

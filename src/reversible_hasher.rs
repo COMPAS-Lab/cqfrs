@@ -1,5 +1,7 @@
 use std::hash::{BuildHasher, Hasher};
 
+use crate::utils::saturating_bitmask;
+
 /// Implements reversable hash function for values less than HASH_BITS (max 64 bits).
 #[derive(Clone, Copy, Default)]
 pub struct ReversibleHasher<const HASH_BITS: u64> {
@@ -8,7 +10,7 @@ pub struct ReversibleHasher<const HASH_BITS: u64> {
 }
 
 impl<const HASH_BITS: u64> ReversibleHasher<HASH_BITS> {
-    const HASH_MASK: u64 = (1 << HASH_BITS) - 1;
+    const HASH_MASK: u64 = saturating_bitmask(HASH_BITS);
     fn new() -> Self {
         ReversibleHasher { hash: 0 }
     }
@@ -65,17 +67,17 @@ impl<const HASH_BITS: u64> Hasher for ReversibleHasher<HASH_BITS> {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes.into_iter().rev() {
-            self.hash = unsafe { self.hash.unchecked_shl(8) };
+        for byte in bytes.iter().rev() {
+            self.hash <<= 8;
             self.hash |= *byte as u64;
         }
     }
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct BuildReversableHasher<const HASH_BITS: u64>;
+pub struct BuildReversibleHasher<const HASH_BITS: u64>;
 
-impl<const HASH_BITS: u64> BuildHasher for BuildReversableHasher<HASH_BITS> {
+impl<const HASH_BITS: u64> BuildHasher for BuildReversibleHasher<HASH_BITS> {
     type Hasher = ReversibleHasher<HASH_BITS>;
 
     fn build_hasher(&self) -> Self::Hasher {
