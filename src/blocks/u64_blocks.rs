@@ -1,9 +1,10 @@
 // use libc::c_void;
 
-use super::{Blocks, Offset};
-use crate::SLOTS_PER_BLOCK;
 use std::ops::{Deref, DerefMut};
 use std::ptr::Unique;
+
+use super::{Blocks, Offset};
+use crate::SLOTS_PER_BLOCK;
 pub type Remainder = u64;
 
 #[repr(C)]

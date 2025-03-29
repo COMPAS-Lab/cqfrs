@@ -97,7 +97,7 @@ mod utils {
     }
 
     pub fn bitselect(val: u64, rank: u64) -> u64 {
-        pdep(1 << rank, val).trailing_zeros() as u64
+        pdep(1u64.unbounded_shl(rank as u32), val).trailing_zeros() as u64
     }
 
     pub fn bitselectv(val: u64, ignore: u64, rank: u64) -> u64 {

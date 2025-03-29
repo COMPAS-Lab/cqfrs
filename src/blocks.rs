@@ -1,9 +1,7 @@
 type Offset = u64;
 
-use crate::{
-    utils::{bitmask, bitrank, bitselect, bitselectv, popcntv},
-    SLOTS_PER_BLOCK,
-};
+use crate::utils::{bitmask, bitrank, bitselect, bitselectv, popcntv};
+use crate::SLOTS_PER_BLOCK;
 
 // pub mod u64_soa_blocks;
 pub mod u32_blocks;

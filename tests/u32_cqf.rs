@@ -194,12 +194,20 @@ fn simple_merge() {
     );
 
     map_merge(&mut elements_1, elements_2);
-    let mut elements = elements_1.iter().collect::<Vec<_>>();
-    elements.sort_by_key(|(k, _)| *k);
+
+    for (count, hash) in cqf3.iter() {
+        let og = ReversibleHasher::<HASH_BITS>::invert_hash(hash);
+        let v = elements_1.get(&og).expect(&format!("{} not found", og));
+        assert_eq!(count, *v);
+    }
 
     for (&k, &v) in elements_1.iter() {
         let (count, _) = cqf3.query(k);
-        assert_eq!(count, v, "{}={}", k, v);
+        assert_eq!(
+            count, v,
+            "mismatch for key {}; cqf: {} != map: {}",
+            k, count, v
+        );
     }
 }
 

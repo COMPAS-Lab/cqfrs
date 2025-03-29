@@ -1,8 +1,7 @@
+use std::fs::File;
+use std::hash::{BuildHasher, Hash};
+
 use crate::SLOTS_PER_BLOCK;
-use std::{
-    fs::File,
-    hash::{BuildHasher, Hash},
-};
 
 /// Owns Metadata (through a pointer)
 struct MetadataWrapper(std::ptr::Unique<Metadata>);
@@ -243,8 +242,7 @@ impl CqfMerge {
         let mut current_b = iter_b.next();
         let mut merged_cqf_current_quotient = 0u64;
         while current_a.is_some() && current_b.is_some() {
-
-           // let mut is_now = false;
+            // let mut is_now = false;
 
             let insert_quotient: u64;
             let insert_remainder: u64;
@@ -360,8 +358,7 @@ impl CqfMerge {
         let mut current_b = iter_b.next();
         let mut merged_cqf_current_quotient = 0u64;
         while current_a.is_some() && current_b.is_some() {
-
-          //  let mut is_now = false;
+            //  let mut is_now = false;
 
             let insert_quotient: u64;
             let insert_remainder: u64;
@@ -425,8 +422,7 @@ impl CqfMerge {
             );
         }
         while current_a.is_some() {
-
-          //  let mut is_now = false;
+            //  let mut is_now = false;
 
             let insert_quotient: u64;
             let insert_remainder: u64;

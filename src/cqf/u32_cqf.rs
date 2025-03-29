@@ -1,17 +1,15 @@
+use std::fs::File;
+use std::hash;
+use std::hash::{BuildHasher, Hash};
+use std::os::fd::AsRawFd;
+
 use super::{
     CountingQuotientFilter, CqfError, CqfIteratorImpl, Metadata, MetadataWrapper, RuntimeData,
     SLOTS_PER_BLOCK,
 };
-use crate::{
-    blocks::{u32_blocks::*, Blocks},
-    utils::{bitrank, bitselect},
-};
-use std::{
-    fs::File,
-    hash::{BuildHasher, Hash},
-};
-/// Fixed size counter u64 quotient filter
-use std::{hash, os::fd::AsRawFd};
+use crate::blocks::u32_blocks::*;
+use crate::blocks::Blocks;
+use crate::utils::{bitrank, bitselect};
 
 enum InsertOperation {
     /// Insert into empty slot
@@ -22,6 +20,7 @@ enum InsertOperation {
     Insert,
 }
 
+/// Fixed size counter u32 quotient filter
 pub struct U32Cqf<H: BuildHasher> {
     metadata: MetadataWrapper,
     blocks: U32Blocks,
@@ -673,6 +672,7 @@ impl<H: BuildHasher> Iterator for U32ConsumingIterator<H> {
             self.cqf.blocks.occupieds_by_block(block_index),
             self.current_run_start % SLOTS_PER_BLOCK as u64,
         );
+        // if rank == 64, need to go to next block
         let mut next_run_slot = bitselect(self.cqf.blocks.occupieds_by_block(block_index), rank);
         if next_run_slot == 64 {
             rank = 0;

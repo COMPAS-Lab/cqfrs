@@ -1,18 +1,15 @@
-// use super::*;
+use std::fs::File;
+use std::hash;
+use std::hash::{BuildHasher, Hash};
+use std::os::fd::AsRawFd;
+
 use super::{
     CountingQuotientFilter, CqfError, CqfIteratorImpl, Metadata, MetadataWrapper, RuntimeData,
     SLOTS_PER_BLOCK,
 };
-use crate::{
-    blocks::{u64_blocks::*, Blocks},
-    utils::{bitrank, bitselect},
-};
-use std::{
-    fs::File,
-    hash::{BuildHasher, Hash},
-};
-/// Fixed size counter u64 quotient filter
-use std::{hash, os::fd::AsRawFd};
+use crate::blocks::u64_blocks::*;
+use crate::blocks::Blocks;
+use crate::utils::{bitrank, bitselect};
 
 enum InsertOperation {
     /// Insert into empty slot
@@ -23,6 +20,7 @@ enum InsertOperation {
     Insert,
 }
 
+/// Fixed size counter u64 quotient filter
 pub struct U64Cqf<H: BuildHasher> {
     metadata: MetadataWrapper,
     blocks: U64Blocks,
