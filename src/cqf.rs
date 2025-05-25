@@ -6,13 +6,35 @@ use crate::SLOTS_PER_BLOCK;
 /// Owns Metadata (through a pointer)
 struct MetadataWrapper(std::ptr::Unique<Metadata>);
 
+impl MetadataWrapper {
+    // FIXME: check if this invariant is correct
+    /// # Safety
+    /// The pointer must be valid for the lifetime of the wrapper and must be non-null.
+    pub unsafe fn from_raw(ptr: *mut Metadata) -> Result<Self, &'static str> {
+        std::ptr::Unique::new(ptr)
+            .ok_or("Called with null pointer")
+            .map(|unique| Self(unique))
+    }
+    pub fn as_ref(&self) -> &Metadata {
+        unsafe { self.0.as_ref() }
+    }
+    pub fn as_mut(&mut self) -> &mut Metadata {
+        unsafe { self.0.as_mut() }
+    }
+    pub fn as_ptr(&self) -> *const Metadata {
+        self.0.as_ptr()
+    }
+    pub fn as_mut_ptr(&mut self) -> *mut Metadata {
+        self.0.as_ptr()
+    }
+}
+
 impl From<*mut Metadata> for MetadataWrapper {
     /// Create a MetadataWrapper from a *mut Metadata.
     /// The metadata pointer passed in must be valid, this takes ownership of
     /// the metadata object.
     fn from(metadata: *mut Metadata) -> Self {
-        let inner = unsafe { std::ptr::Unique::new_unchecked(metadata) };
-        Self(inner)
+        unsafe { MetadataWrapper::from_raw(metadata).expect("null pointer") }
     }
 }
 
@@ -34,13 +56,13 @@ struct Metadata {
 impl std::ops::Deref for MetadataWrapper {
     type Target = Metadata;
     fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
+        self.as_ref()
     }
 }
 
 impl std::ops::DerefMut for MetadataWrapper {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
+        self.as_mut()
     }
 }
 
@@ -517,32 +539,38 @@ impl<A: CqfIteratorImpl, B: CqfIteratorImpl> ZippedCqfIter<A, B> {
     }
 }
 
+pub enum EitherOrBoth<A, B = A> {
+    Left(A),
+    Right(B),
+    Both(A, B),
+}
+
 impl<A: CqfIteratorImpl, B: CqfIteratorImpl> Iterator for ZippedCqfIter<A, B> {
-    type Item = (Option<(u64, u64)>, Option<(u64, u64)>);
+    type Item = EitherOrBoth<(u64, u64)>;
     fn next(&mut self) -> Option<Self::Item> {
         match (self.current_a, self.current_b) {
             (None, None) => None,
             (Some(a_val), None) => {
                 self.current_a = self.iter_a.next();
-                Some((Some(a_val), None))
+                Some(EitherOrBoth::Left(a_val))
             }
             (None, Some(b_val)) => {
                 self.current_b = self.iter_b.next();
-                Some((None, Some(b_val)))
+                Some(EitherOrBoth::Right(b_val))
             }
             (Some(a_val), Some(b_val)) => {
                 let a_hash = a_val.1;
                 let b_hash = b_val.1;
                 if a_hash < b_hash {
                     self.current_a = self.iter_a.next();
-                    Some((Some(a_val), None))
+                    Some(EitherOrBoth::Left(a_val))
                 } else if a_hash > b_hash {
                     self.current_b = self.iter_b.next();
-                    Some((None, Some(b_val)))
+                    Some(EitherOrBoth::Right(b_val))
                 } else {
                     self.current_a = self.iter_a.next();
                     self.current_b = self.iter_b.next();
-                    Some((Some(a_val), Some(b_val)))
+                    Some(EitherOrBoth::Both(a_val, b_val))
                 }
             }
         }

@@ -3,12 +3,18 @@ mod common;
 use std::io::Write;
 
 use common::{map_merge, slots_threshold, test_init, test_init_map};
-use cqfrs::{BuildReversibleHasher, CountingQuotientFilter, CqfMerge, ReversibleHasher, U32Cqf};
+use cqfrs::{
+    BuildReversibleHasher, CountingQuotientFilter, CqfMerge, EitherOrBoth, ReversibleHasher,
+    U32Cqf, U64Cqf, ZippedCqfIter,
+};
+use dashmap::DashSet;
 use hashbrown::HashMap;
+use rayon::iter::{FromParallelIterator, IntoParallelIterator, ParallelIterator};
+use rayon::slice::ParallelSliceMut;
 
 #[test]
-fn simple() {
-    const LOGN_SLOTS: u64 = 26;
+fn simple_insert() {
+    const LOGN_SLOTS: u64 = 22;
 
     const HASH_BITS: u64 = 46;
     const TEST_MASK: u64 = (1 << HASH_BITS) - 1;
@@ -126,7 +132,7 @@ fn simple() {
 
 #[test]
 fn simple_merge() {
-    const LOGN_SLOTS: u64 = 20;
+    const LOGN_SLOTS: u64 = 26;
     const HASH_BITS: u64 = 46;
 
     const NUM_ELEMENTS_1: usize = slots_threshold(LOGN_SLOTS, 0.1);
@@ -209,6 +215,109 @@ fn simple_merge() {
             k, count, v
         );
     }
+}
+
+#[test]
+fn simple_zip_iter() {
+    const LOGN_SLOTS: u64 = 26;
+    const HASH_BITS: u64 = 46;
+
+    const NUM_ELEMENTS_1: usize = slots_threshold(LOGN_SLOTS, 0.2);
+    const NUM_ELEMENTS_2: usize = slots_threshold(LOGN_SLOTS, 0.01);
+
+    eprintln!("building maps");
+    let elements_1 = test_init_map(NUM_ELEMENTS_1, NUM_ELEMENTS_1 as u64);
+    let elements_2 = test_init_map(NUM_ELEMENTS_2, NUM_ELEMENTS_1 as u64);
+    eprintln!("maps built");
+    dbg!(elements_1.len(), elements_2.len());
+
+    let mut cqf1 = U32Cqf::new_file(
+        LOGN_SLOTS,
+        HASH_BITS,
+        true,
+        BuildReversibleHasher::<HASH_BITS>,
+        tempfile::tempfile().unwrap(),
+    )
+    .expect("failed to make cqf");
+
+    let mut cqf2 = U64Cqf::new_file(
+        LOGN_SLOTS,
+        HASH_BITS,
+        true,
+        BuildReversibleHasher::<HASH_BITS>,
+        tempfile::tempfile().unwrap(),
+    )
+    .expect("failed to make cqf");
+
+    eprintln!("Starting insert 1");
+    let now = std::time::Instant::now();
+    for (&k, &v) in elements_1.iter() {
+        cqf1.insert(k, v).expect("insert failed!");
+    }
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Insert 1 took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / NUM_ELEMENTS_1 as u32
+    );
+
+    eprintln!("Starting insert 2");
+    let now = std::time::Instant::now();
+    for (&k, &v) in elements_2.iter() {
+        cqf2.insert(k, v).expect("insert failed!");
+    }
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Insert 2 took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / NUM_ELEMENTS_2 as u32
+    );
+
+    // let mut pairs_set = BTreeSet::<(u32, u64)>::default();
+    // let mut c1_set = BTreeSet::<u32>::new();
+    // let mut c2_set = BTreeSet::<u64>::default();
+    // let mut num_pairs = 0;
+    let pairs_set = DashSet::<(u32, u64)>::default();
+    let c1_set = DashSet::<u32>::default();
+    let c2_set = DashSet::<u64>::default();
+
+    eprintln!("Starting zipped iter");
+    let now = std::time::Instant::now();
+    let pairs = ZippedCqfIter::new(cqf1.iter(), cqf2.iter()).collect::<Vec<_>>();
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Zipped iter collect took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / (NUM_ELEMENTS_1 + NUM_ELEMENTS_2) as u32
+    );
+
+    let now = std::time::Instant::now();
+    pairs.into_par_iter().for_each(|pair| match pair {
+        EitherOrBoth::Left((c1, _)) => {
+            c1_set.insert(c1 as u32);
+        }
+        EitherOrBoth::Right((c2, _)) => {
+            c2_set.insert(c2);
+        }
+        EitherOrBoth::Both((c1, _), (c2, _)) => {
+            pairs_set.insert((c1 as u32, c2));
+        }
+    });
+
+    let mut pairs_set: Vec<_> = Vec::from_par_iter(pairs_set);
+    pairs_set.par_sort_unstable();
+    let mut c1_set: Vec<_> = Vec::from_par_iter(c1_set);
+    c1_set.par_sort_unstable();
+    let mut c2_set: Vec<_> = Vec::from_par_iter(c2_set);
+    c2_set.par_sort_unstable();
+
+    let elapsed = now.elapsed();
+    eprintln!(
+        "Build pairs took {:?} ({:?} per iter)",
+        elapsed,
+        elapsed / (NUM_ELEMENTS_1 + NUM_ELEMENTS_2) as u32
+    );
+    dbg!(pairs_set.len(), c1_set.len(), c2_set.len());
 }
 
 #[test]
@@ -352,453 +461,4 @@ fn ref_iter() {
 //     // let fin = Instant::now();
 
 //     println!("Time to fin: {:?}", now.elapsed());
-
-//     // let n_strings: usize = ((1 << 10)) as usize;
-//     // let mut numbers: Vec<u64> = Vec::with_capacity(n_strings);
-
-//     // println!("{:?}", numbers.clone());
-//     // println!("{:?}", numbers.clone());
-
-//     // let now = Instant::now();
-//     // for i in 0..n_strings / 2 {
-//     //     //qf.insert(strings[i].as_bytes(), 3)?;
-//     //     // println!("inserting {}", numbers[i]);
-//     //     qf.insert(numbers[i] as u64, 1).expect("insert failed!");
-//     //     // qf2.insert(numbers[i] as u64, 1).expect("insert failed!");
-//     // }
-
-//     // for i in (n_strings / 2)..n_strings {
-//     //     //qf.insert(strings[i].as_bytes(), 3)?;
-//     //     // println!("inserting {}", numbers[i]);
-//     //     qf2.insert(numbers[i] as u64, 1).expect("insert failed!");
-//     // }
-//     // println!("inserted {} elements", n_strings);
-
-//     // let now = Instant::now();
-//     // let qf3 = CountingQuotientFilter::merge(&qf, &qf2).unwrap();
-//     // println!("new merge took {}", now.elapsed().as_secs());
-
-//     // let mut count = 0;
-//     // for item in qf3.into_iter() {
-//     //     count += item.count;
-//     // }
-//     // println!("count is {}", count);
-//     // drop(qf3);
-
-//     // let now = Instant::now();
-//     // for v in qf.into_iter() {
-//     //     qf2.insert_by_hash(v.hash, v.count).expect("insert failed!");
-//     // }
-//     // println!("old merge took {}", now.elapsed().as_secs());
-
-//     // let mut count = 0;
-//     // for item in qf2.into_iter() {
-//     //     count += item.count;
-//     // }
-//     // println!("count is {}", count);
-
-//     // // ////////////////////////////////////////////////
-//     // // for (k, v) in uniques.iter() {
-//     // //     let res = qf .query(*k);
-//     // //     assert_eq!(res.count, *v);
-//     // //     count += res.count;
-//     // // }
-
-//     // // for item in qf.into_iter() {
-//     // //     count += item.count;
-//     // //     // let res = qf.query_by_hash(item.hash);
-//     // //     // let res2 = qf2.query_by_hash(item.hash);
-//     // //     // assert_eq!(res + res2, *uniques.get(&ReversibleHasher::invert_hash(item.hash)).unwrap());
-//     // //     // assert_eq!(res, item.count * 2);
-//     // //     // assert_eq!(item.count, *uniques.get(&ReversibleHasher::invert_hash(item.hash)).unwrap() * 2);
-//     // // }
-//     // // println!("qf1");
-//     // // qf.print();
-//     // // println!("qf2");
-//     // // qf2.print();
-//     // // println!("qf3");
-//     // // qf3.print();
-
-//     // // return;
-
-//     // let mut uniques: HashMap<u64, u64> = HashMap::new();
-//     // for i in 0..n_strings {
-//     //     uniques.insert(numbers[i], 1);
-//     // }
-//     // println!("count should be {}", n_strings);
-
-//     // // qf.print();
-
-//     // let elapsed = now.elapsed();
-//     // println!("insert took {} seconds!", elapsed.as_secs());
 // }
-
-// // fn main() {
-// //     //
-
-// //     ///////////////////////////////////////
-// //     // let num_threads = 6;
-// //     // let numbers = Arc::new(numbers);
-// //     // let qf = Arc::new(qf);
-
-// //     // let mut handles = Vec::with_capacity(num_threads);
-
-// //     // let now = Instant::now();
-// //     // for i in 0..num_threads {
-// //     //     let qf = qf.clone();
-// //     //     let numbers = numbers.clone();
-// //     //     handles.push(std::thread::spawn(move || {
-// //     //         for j in (i*n_strings/num_threads)..((i+1)*n_strings/num_threads) {
-// //     //             // println!("inserting {}", numbers[j]);
-// //     //             qf.insert(numbers[j] as u64, 1).expect("insert failed!");
-// //     //         }
-// //     //     }));
-// //     // }
-
-// //     // for handle in handles {
-// //     //     handle.join().unwrap();
-// //     // }
-// //     ////////////////////////////////////////////////
-// //     // let inserts = Arc::new(AtomicI32::new(0));
-// //     // numbers.par_iter().for_each(|&i| {
-// //     //     qf.insert(i as u64, 1).expect("insert failed!");
-// //     //     // inserts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-// //     // });
-
-// //     // println!("inserted {} elements", inserts.load(std::sync::atomic::Ordering::SeqCst));
-// //     // println!("{n_strings}");
-// //     // for i in 0..n_strings {
-// //     //     //qf.insert(strings[i].as_bytes(), 3)?;
-// //     //     qf.insert(numbers[i] as u64, 1).expect("insert failed!");
-// //     // }
-
-// //     // let elapsed = now.elapsed();
-// //     // println!("insert took {} seconds!", elapsed.as_millis());
-
-// //     // let now = Instant::now();
-
-// //     // let qf = Arc::new(qf);
-
-// //     // let elapsed = now.elapsed();
-// //     // println!("insert took {} seconds!", elapsed.as_secs());
-
-// //     ///////////////////////////////////////////////////////////////////////
-
-// //     let mut qf =
-// //         CountingQuotientFilter::new(25, 25, HashMode::Invertible).expect("failed to make cqf");
-
-// //     let qf = CountingQuotientFilter::new_file(25, 25, HashMode::Invertible, "test.qf".into())
-// //         .expect("failed to make cqf");
-// //     // let qf = CountingQuotientFilter::open_file("test.qf".into()).expect("failed to make cqf");
-// //     let n_strings: usize = 10_000_000;
-
-// //     let mut numbers: Vec<u64> = Vec::with_capacity(n_strings);
-// //     let mut rng = rand::thread_rng();
-
-// //     for _ in 0..n_strings {
-// //         numbers.push(rng.gen())
-// //     }
-
-// //     for i in 0..n_strings / 2 {
-// //         //qf.insert(strings[i].as_bytes(), 3)?;
-// //         match qf.insert(numbers[i], 3) {
-// //             Err(_) => eprintln!("Error inserting"),
-// //             _ => continue,
-// //         };
-// //     }
-// //     let mut total_in = 0;
-// //     for i in 0..n_strings / 2 {
-// //         //assert!(qf.query(strings[i].as_bytes()) > 0, "false negative!");
-// //         let p = qf.query(numbers[i]);
-// //         total_in += p;
-// //         assert!(qf.query(numbers[i]) > 0, "false negative!");
-// //     }
-
-// //     let mut present: u32 = 0;
-// //     for i in n_strings / 2..n_strings {
-// //         /*
-// //         if qf.query(strings[i].as_bytes()) > 0 {
-// //             present += 1;
-// //         }
-// //         */
-// //         if qf.query(numbers[i]) > 0 {
-// //             present += 1;
-// //         }
-// //     }
-// //     assert_eq!(present, 0);
-// //     println!("{} elements present", total_in);
-
-// //     drop(qf);
-
-// //     // MMAP LOAD TEST
-
-// //     let qf = CountingQuotientFilter::open_file("test.qf".into()).expect("failed to make cqf");
-// //     let n_strings: usize = 10_000_000;
-
-// //     // let mut numbers: Vec<u64> = Vec::with_capacity(n_strings);
-// //     // let mut rng = rand::thread_rng();
-
-// //     // for _ in 0..n_strings {
-// //     //     numbers.push(rng.gen())
-// //     // }
-
-// //     let mut total_in = 0;
-// //     for i in 0..n_strings / 2 {
-// //         //assert!(qf.query(strings[i].as_bytes()) > 0, "false negative!");
-// //         let p = qf.query(numbers[i]);
-// //         total_in += p;
-// //         assert!(qf.query(numbers[i]) > 0, "false negative!");
-// //     }
-
-// //     let mut present: u32 = 0;
-// //     for i in n_strings / 2..n_strings {
-// //         /*
-// //         if qf.query(strings[i].as_bytes()) > 0 {
-// //             present += 1;
-// //         }
-// //         */
-// //         if qf.query(numbers[i]) > 0 {
-// //             present += 1;
-// //         }
-// //     }
-// //     assert_eq!(present, 0);
-// //     println!("{} elements present", total_in);
-
-// //     // let qf = CountingQuotientFilter::new_file(25,25,HashMode::Invertible, "test.qf".into()).expect("failed to make cqf");
-// // }
-
-// // use cqfrs::{CountingQuotientFilter, HashMode};
-// // use rand::Rng;
-// // use rayon::prelude::*;
-// // use std::fs;
-// // use std::sync::{atomic::AtomicI32, Arc};
-// // use std::time::Instant;
-
-// // const LOGN_SLOTS: u64 = 23;
-// // use xxhash_rust::xxh3::xxh3_64;
-// // fn main() {
-// //     // {
-// //         if fs::metadata("test.qf").is_ok() {
-// //             fs::remove_file("test.qf").expect("failed to remove file");
-// //         }
-// //         {
-// //             let qf = CountingQuotientFilter::new_file(LOGN_SLOTS, LOGN_SLOTS, HashMode::Invertible, "test.qf".into()).unwrap();
-// //         }
-// //         let qf = CountingQuotientFilter::open_file("test.qf".into()).expect("failed to make cqf");
-// //     // }
-// //     // {
-// //     //     let qf = CountingQuotientFilter::open_file("test.qf".into()).expect("failed to make cqf");
-// //     // }
-// //         // qf.clear();
-// //     let n_strings: usize = ((1 << (LOGN_SLOTS)) as f32 * 0.95) as usize;
-// //     let mut numbers: Vec<u64> = (0..n_strings as u64).map(|n| xxh3_64(&n.to_le_bytes())).collect();
-
-// //     /* let mut rng = rand::thread_rng();
-// //     for _ in 0..n_strings {
-// //         numbers.push(rng.gen())
-// //     } */
-// //     // numbers = (0..n_strings as u64).map(|n| xxh3_64(&n.to_le_bytes())).collect();
-// //     numbers.sort();
-
-// //     println!("inserting now...");
-// //     // let now = Instant::now();
-// //     for i in 0..n_strings {
-// //         //qf.insert(strings[i].as_bytes(), 3)?;
-// //         // println!("inserting {}", numbers[i]);
-// //         // println!("inserting {}", numbers[i]);
-// //         qf.insert_by_hash(numbers[i], 1).expect("insert failed!");
-// //     }
-
-// //     println!("{}", qf.query_by_hash(numbers[0]));
-
-// // let qf = CountingQuotientFilter::new(LOGN_SLOTS, LOGN_SLOTS, HashMode::Invertible).unwrap();
-// // qf.clear();
-// // println!("cleared");
-// // let n_strings: usize = ((1 << (LOGN_SLOTS)) as f32 * 0.9) as usize;
-// // let mut numbers: Vec<u64> = Vec::with_capacity(n_strings);
-
-// // let mut rng = rand::thread_rng();
-// // for _ in 0..n_strings {
-// //     numbers.push(rng.gen())
-// // }
-
-// // numbers.clone().into_par_iter().for_each(|n| {
-// //     qf.insert(n, 1).expect("insert failed!");
-// // });
-
-// // let now = Instant::now();
-// // for i in 0..n_strings {
-// //     //qf.insert(strings[i].as_bytes(), 3)?;
-// //     // println!("inserting {}", numbers[i]);
-// //     qf.insert((numbers[i]) as u64, 1).expect("insert failed!");
-// // }
-// // let mut item_count = AtomicI32::new(0);
-
-// // qf.set_count(numbers[0], 100).expect("Failed to set count");
-// // println!("count is {}", qf.query(numbers[0]));
-// // qf.set_count(numbers[0], 300).expect("Failed to set count");
-// // println!("count is {}", qf.query(numbers[0]));
-// // qf.set_count(numbers[0], 2).expect("Failed to set count");
-// // println!("count is {}", qf.query(numbers[0]));
-
-// // Iterator::for_each(qf.into_iter(), |item| {
-// //     item_count.fetch_add(item.count as i32, std::sync::atomic::Ordering::SeqCst);
-// // });
-
-// // let now = Instant::now();
-// // println!("num threads {}", rayon::current_num_threads());
-// // rayon::iter::ParallelIterator::for_each(qf.into_par_iter(), |item| {
-// //     item_count.fetch_add(item.count as i32, std::sync::atomic::Ordering::SeqCst);
-// // });
-// // qf.into_par_iter().for_each(|item| {
-// //     item_count.fetch_add(item.count as i32, std::sync::atomic::Ordering::SeqCst);
-// // });
-// // println!("num threads {}", rayon::current_num_threads());
-// // println!("Time to iterate: {:?}", now.elapsed());
-
-// // let mut unique_strings = std::collections::HashSet::new();
-// // for i in 0..n_strings {
-// //     unique_strings.insert(numbers[i]);
-// // }
-
-// // println!("Item Count {}, should be {}",item_count.load(std::sync::atomic::Ordering::SeqCst), unique_strings.len());
-
-// // for i in 0..n_strings {
-// //     //qf.insert(strings[i].as_bytes(), 3)?;
-// //     // println!("inserting {}", numbers[i]);
-// //     assert!(qf.query((numbers[i]) as u64) > 0);
-// // }
-
-// // qf.print();
-// // NOTE offsets may be off by one ??
-// ///////////////////////////////////////
-// // let num_threads = 6;
-// // let numbers = Arc::new(numbers);
-// // let qf = Arc::new(qf);
-
-// // let mut handles = Vec::with_capacity(num_threads);
-
-// // let now = Instant::now();
-// // for i in 0..num_threads {
-// //     let qf = qf.clone();
-// //     let numbers = numbers.clone();
-// //     handles.push(std::thread::spawn(move || {
-// //         for j in (i*n_strings/num_threads)..((i+1)*n_strings/num_threads) {
-// //             // println!("inserting {}", numbers[j]);
-// //             qf.insert(numbers[j] as u64, 1).expect("insert failed!");
-// //         }
-// //     }));
-// // }
-
-// // for handle in handles {
-// //     handle.join().unwrap();
-// // }
-// ////////////////////////////////////////////////
-// // let inserts = Arc::new(AtomicI32::new(0));
-// // numbers.par_iter().for_each(|&i| {
-// //     qf.insert(i as u64, 1).expect("insert failed!");
-// //     // inserts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-// // });
-
-// // println!("inserted {} elements", inserts.load(std::sync::atomic::Ordering::SeqCst));
-// // println!("{n_strings}");
-// // for i in 0..n_strings {
-// //     //qf.insert(strings[i].as_bytes(), 3)?;
-// //     qf.insert(numbers[i] as u64, 1).expect("insert failed!");
-// // }
-
-// // let elapsed = now.elapsed();
-// // println!("insert took {} seconds!", elapsed.as_millis());
-
-// // let now = Instant::now();
-
-// // let qf = Arc::new(qf);
-
-// // let elapsed = now.elapsed();
-// // println!("insert took {} seconds!", elapsed.as_secs());
-
-// ///////////////////////////////////////////////////////////////////////
-
-// // let mut qf =
-// //     CountingQuotientFilter::new(25, 25, HashMode::Invertible).expect("failed to make cqf");
-
-// // let qf = CountingQuotientFilter::new_file(25, 25, HashMode::Invertible, "test.qf".into())
-// //     .expect("failed to make cqf");
-// // // let qf = CountingQuotientFilter::open_file("test.qf".into()).expect("failed to make cqf");
-// // let n_strings: usize = 10_000_000;
-
-// // let mut numbers: Vec<u64> = Vec::with_capacity(n_strings);
-// // let mut rng = rand::thread_rng();
-
-// // for _ in 0..n_strings {
-// //     numbers.push(rng.gen())
-// // }
-
-// // for i in 0..n_strings / 2 {
-// //     //qf.insert(strings[i].as_bytes(), 3)?;
-// //     match qf.insert(numbers[i], 3) {
-// //         Err(_) => eprintln!("Error inserting"),
-// //         _ => continue,
-// //     };
-// // }
-// // let mut total_in = 0;
-// // for i in 0..n_strings {
-// //     //assert!(qf.query(strings[i].as_bytes()) > 0, "false negative!");
-// //     let p = qf.query(numbers[i]);
-// //     total_in += p;
-// //     assert!(qf.query(numbers[i]) > 0, "false negative!");
-// // }
-// // println!("{} elements present", total_in);
-
-// // let mut present: u32 = 0;
-// // for i in n_strings / 2..n_strings {
-// //     /*
-// //     if qf.query(strings[i].as_bytes()) > 0 {
-// //         present += 1;
-// //     }
-// //     */
-// //     if qf.query(numbers[i]) > 0 {
-// //         present += 1;
-// //     }
-// // }
-// // assert_eq!(present, 0);
-// // println!("{} elements present", total_in);
-
-// // drop(qf);
-
-// // // MMAP LOAD TEST
-
-// // let qf = CountingQuotientFilter::open_file("test.qf".into()).expect("failed to make cqf");
-// // let n_strings: usize = 10_000_000;
-
-// // // let mut numbers: Vec<u64> = Vec::with_capacity(n_strings);
-// // // let mut rng = rand::thread_rng();
-
-// // // for _ in 0..n_strings {
-// // //     numbers.push(rng.gen())
-// // // }
-
-// // let mut total_in = 0;
-// // for i in 0..n_strings / 2 {
-// //     //assert!(qf.query(strings[i].as_bytes()) > 0, "false negative!");
-// //     let p = qf.query(numbers[i]);
-// //     total_in += p;
-// //     assert!(qf.query(numbers[i]) > 0, "false negative!");
-// // }
-
-// // let mut present: u32 = 0;
-// // for i in n_strings / 2..n_strings {
-// //     /*
-// //     if qf.query(strings[i].as_bytes()) > 0 {
-// //         present += 1;
-// //     }
-// //     */
-// //     if qf.query(numbers[i]) > 0 {
-// //         present += 1;
-// //     }
-// // }
-// // assert_eq!(present, 0);
-// // println!("{} elements present", total_in);
-
-// // let qf = CountingQuotientFilter::new_file(25,25,HashMode::Invertible, "test.qf".into()).expect("failed to make cqf");
-// // }
