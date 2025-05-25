@@ -7,13 +7,13 @@ pub struct HashCount {
 }
 
 mod blocks {
-    use super::Remainder;
-    use super::SLOTS_PER_BLOCK;
-    use crate::utils::*;
-    use bitintr::{Pdep, Popcnt, Tzcnt};
-    use std::ops::Deref;
-    use std::ops::DerefMut;
+    use std::ops::{Deref, DerefMut};
     use std::ptr::Unique;
+
+    use bitintr::{Pdep, Popcnt, Tzcnt};
+
+    use super::{Remainder, SLOTS_PER_BLOCK};
+    use crate::utils::*;
 
     #[repr(C)]
     pub struct Block {
@@ -318,7 +318,12 @@ mod blocks {
             }
         }
 
-        pub fn decode_counter(&self, quotient: u64, remainder: &mut Remainder, count: &mut u64) -> u64 {
+        pub fn decode_counter(
+            &self,
+            quotient: u64,
+            remainder: &mut Remainder,
+            count: &mut u64,
+        ) -> u64 {
             let block_index: usize = (quotient / SLOTS_PER_BLOCK as u64) as usize;
             let slot_index: usize = (quotient % SLOTS_PER_BLOCK as u64) as usize;
             *remainder = *self[block_index].slot(slot_index);
@@ -336,27 +341,25 @@ mod blocks {
     }
 }
 
-use crate::CqfError;
-use crate::{Metadata, RuntimeData};
-use blocks::{Block, Blocks};
-use crossbeam::utils::CachePadded;
-use libc::{
-    c_void, madvise, mmap, munmap, MADV_RANDOM, MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB,
-    MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE, MADV_SEQUENTIAL,
-};
-use parking_lot::Mutex;
 use std::cmp::min;
 use std::collections::HashMap;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::hash::{self, BuildHasher, Hasher};
 use std::os::fd::AsRawFd;
 use std::path::{self, Path, PathBuf};
 use std::ptr::{self, NonNull, Unique};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
-use std::{
-    fs::File,
-    sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering},
+
+use blocks::{Block, Blocks};
+use crossbeam::utils::CachePadded;
+use libc::{
+    c_void, madvise, mmap, munmap, MADV_RANDOM, MADV_SEQUENTIAL, MAP_ANONYMOUS, MAP_FAILED,
+    MAP_HUGETLB, MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE,
 };
+use parking_lot::Mutex;
+
+use crate::{CqfError, Metadata, RuntimeData};
 
 pub struct CountingQuotientFilter<'a, Hasher: BuildHasher> {
     runtimedata: Box<RuntimeData<Hasher>>,
@@ -835,10 +838,6 @@ impl<'a, Hasher: BuildHasher> CountingQuotientFilter<'a, Hasher> {
         insert_index: u64,
         noverwrites: u64,
     ) {
-        // println!("insert_and_shift {operation} {quotient} {remainder} {count} {insert_index} {noverwrites}");
-        // if quotient == 2352 {
-        //     println!("quotient idx {}", quotient);
-        // }
         let ninserts = if count == 1 { 1 } else { 2 } - noverwrites;
         if ninserts > 0 {
             match ninserts {
@@ -1016,9 +1015,7 @@ impl<'a, Hasher: BuildHasher> CountingQuotientFilter<'a, Hasher> {
 impl<'a, Hasher: BuildHasher + Default + Clone> CountingQuotientFilter<'a, Hasher> {
     /// Merges a and b into a in memory cqf
     pub fn merge(a: &Self, b: &Self) -> Result<CountingQuotientFilter<'a, Hasher>, CqfError> {
-        let (larger, smaller) = if a.max_occupied_slots()
-            > b.max_occupied_slots()
-        {
+        let (larger, smaller) = if a.max_occupied_slots() > b.max_occupied_slots() {
             (a, b)
         } else {
             (b, a)
@@ -1051,13 +1048,15 @@ impl<'a, Hasher: BuildHasher + Default + Clone> CountingQuotientFilter<'a, Hashe
         Err(CqfError::FileError)
     }
 
-    pub fn merge_file(a: &Self, b: &Self, path: PathBuf) -> Result<CountingQuotientFilter<'a, Hasher>, CqfError> {
+    pub fn merge_file(
+        a: &Self,
+        b: &Self,
+        path: PathBuf,
+    ) -> Result<CountingQuotientFilter<'a, Hasher>, CqfError> {
         if path.exists() {
             std::fs::remove_file(&path).map_err(|_| CqfError::FileError)?;
         }
-        let (larger, smaller) = if a.max_occupied_slots()
-            > b.max_occupied_slots()
-        {
+        let (larger, smaller) = if a.max_occupied_slots() > b.max_occupied_slots() {
             (a, b)
         } else {
             (b, a)
@@ -1091,8 +1090,6 @@ impl<'a, Hasher: BuildHasher + Default + Clone> CountingQuotientFilter<'a, Hashe
         return Ok(new_cqf);
         Err(CqfError::FileError)
     }
-
-    
 
     // Returns current_quotient-1 if both are None
     fn next_quotient(
@@ -1356,7 +1353,6 @@ impl<'a, Hasher: BuildHasher> IntoIterator for &'a CountingQuotientFilter<'a, Ha
         self.advise_seq();
         // println!("{}", self.metadata.num_occupied_slots.load(Ordering::Relaxed));
 
-
         let mut position = 0;
         if self.num_occupied_slots() == 0 {
             return CQFIterator {
@@ -1500,7 +1496,6 @@ impl<'a, Hasher: BuildHasher> CQFIterator<'a, Hasher> {
                 // advise dont need old run
                 // let old_run = self.run;
 
-
                 self.run = block_idx * 64 + next_run;
                 self.position += 1;
                 if self.position < self.run {
@@ -1600,16 +1595,19 @@ impl<'a, Hasher: BuildHasher> Iterator for CQFIterator<'a, Hasher> {
     }
 }
 
-
 impl<'a, Hasher: BuildHasher + Clone + Default> CountingQuotientFilter<'a, Hasher> {
     /// Fn is (a quotient, aremainder, &mut a_count, b quotient, bremainder, &mut b_count) -> bool True if items should not be inserted
-    pub fn merge_file_cb<T>(s: &T, a: &Self, b: &Self, path: PathBuf, f: fn(&T,&mut Self, u64,u64,&mut u64,u64,u64,&mut u64)) -> Result<CountingQuotientFilter<'a, Hasher>, CqfError> {
+    pub fn merge_file_cb<T>(
+        s: &T,
+        a: &Self,
+        b: &Self,
+        path: PathBuf,
+        f: fn(&T, &mut Self, u64, u64, &mut u64, u64, u64, &mut u64),
+    ) -> Result<CountingQuotientFilter<'a, Hasher>, CqfError> {
         if path.exists() {
             std::fs::remove_file(&path).map_err(|_| CqfError::FileError)?;
         }
-        let (larger, smaller) = if a.max_occupied_slots()
-            > b.max_occupied_slots()
-        {
+        let (larger, smaller) = if a.max_occupied_slots() > b.max_occupied_slots() {
             (a, b)
         } else {
             (b, a)
@@ -1638,14 +1636,20 @@ impl<'a, Hasher: BuildHasher + Clone + Default> CountingQuotientFilter<'a, Hashe
             )?;
         }
 
-        Self::merge_into_cb(s,a, b, &mut new_cqf, f);
+        Self::merge_into_cb(s, a, b, &mut new_cqf, f);
         // not sure if this works
         return Ok(new_cqf);
         Err(CqfError::FileError)
     }
 
     /// Fn is (&mut newcqf, &mut next insert index, a quotient, aremainder, a_count, b quotient, bremainder, b_count, &mut) -> bool True if items should not be inserted
-    fn merge_into_cb<T>(s: &T, a: &Self, b: &Self, new_cqf: &mut Self, f: fn(&T, &mut Self,u64,u64,&mut u64,u64,u64,&mut u64)) {
+    fn merge_into_cb<T>(
+        s: &T,
+        a: &Self,
+        b: &Self,
+        new_cqf: &mut Self,
+        f: fn(&T, &mut Self, u64, u64, &mut u64, u64, u64, &mut u64),
+    ) {
         let mut iter_a = a.into_iter();
         let mut iter_b = b.into_iter();
 
@@ -1671,7 +1675,16 @@ impl<'a, Hasher: BuildHasher + Clone + Default> CountingQuotientFilter<'a, Hashe
                     a_count = a_val.count;
                     b_count = b_val.count;
                 }
-                f(s, new_cqf, a_quotient, a_remainder, &mut a_count, b_quotient, b_remainder, &mut b_count);
+                f(
+                    s,
+                    new_cqf,
+                    a_quotient,
+                    a_remainder,
+                    &mut a_count,
+                    b_quotient,
+                    b_remainder,
+                    &mut b_count,
+                );
                 if a_quotient == b_quotient {
                     insert_count = a_count + b_count;
                     insert_quotient = a_quotient;
@@ -1727,7 +1740,16 @@ impl<'a, Hasher: BuildHasher + Clone + Default> CountingQuotientFilter<'a, Hashe
                 next_quotient = new_cqf.next_quotient(&current_remaining, &None, insert_quotient);
             }
             if is_a {
-                f(s, new_cqf, insert_quotient, insert_remainder, &mut insert_count, u64::MAX, u64::MAX, &mut 0);
+                f(
+                    s,
+                    new_cqf,
+                    insert_quotient,
+                    insert_remainder,
+                    &mut insert_count,
+                    u64::MAX,
+                    u64::MAX,
+                    &mut 0,
+                );
             }
             new_cqf.merge_insert(
                 &mut merged_cqf_current_quotient,
@@ -1738,5 +1760,4 @@ impl<'a, Hasher: BuildHasher + Clone + Default> CountingQuotientFilter<'a, Hashe
             );
         }
     }
-
 }

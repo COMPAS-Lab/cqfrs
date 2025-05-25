@@ -1,9 +1,9 @@
+use std::ptr::Unique;
 
 use libc::c_void;
 
 use super::{Blocks, Offset};
 use crate::SLOTS_PER_BLOCK;
-use std::ptr::Unique;
 pub type Remainder = u64;
 
 #[repr(C)]
@@ -237,21 +237,6 @@ impl Blocks for U64SoaBlocks {
     }
 }
 
-// impl Deref for U64SoaBlocks {
-//     type Target = [Block];
-//     #[inline(always)]
-//     fn deref(&self) -> &Self::Target {
-//         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
-//     }
-// }
-
-// impl DerefMut for U64SoaBlocks {
-//     #[inline(always)]
-//     fn deref_mut(&mut self) -> &mut [Block] {
-//         unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
-//     }
-// }
-
 impl U64SoaBlocks {
     fn metadata(&self) -> &[BlockMetadata] {
         unsafe { std::slice::from_raw_parts(self.ptr_metadata.as_ptr(), self.len) }
@@ -269,9 +254,6 @@ impl U64SoaBlocks {
         unsafe { std::slice::from_raw_parts_mut(self.ptr_blocks.as_ptr(), self.len) }
     }
 }
-
-
-
 
 pub struct BlockMetadata {
     occupieds: u64,

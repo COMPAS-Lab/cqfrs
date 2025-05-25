@@ -1,11 +1,15 @@
-use super::{CountingQuotientFilter, RuntimeData, CqfError, Metadata, MetadataWrapper, SLOTS_PER_BLOCK, CqfIteratorImpl};
-use crate::{
-    blocks::{u64_soa_blocks::*, Blocks},
-    utils::{bitselect, bitrank},
-};
+use std::fs::File;
+use std::hash::{BuildHasher, Hash};
 /// Fixed size counter u64 quotient filter
 use std::{hash, os::fd::AsRawFd};
-use std::{fs::File, hash::{BuildHasher, Hash}};
+
+use super::{
+    CountingQuotientFilter, CqfError, CqfIteratorImpl, Metadata, MetadataWrapper, RuntimeData,
+    SLOTS_PER_BLOCK,
+};
+use crate::blocks::u64_soa_blocks::*;
+use crate::blocks::Blocks;
+use crate::utils::{bitrank, bitselect};
 pub struct U64SoaCqf<H: BuildHasher> {
     metadata: MetadataWrapper,
     blocks: U64SoaBlocks,
@@ -77,49 +81,6 @@ impl<H: BuildHasher> CountingQuotientFilter for U64SoaCqf<H> {
     fn remainder_bits(&self) -> u64 {
         self.metadata.remainder_bits
     }
-    // fn insert_by_hash(&mut self, hash: u64, count: u64) -> Result<u64, CqfError> {
-    //     if std::intrinsics::unlikely(count == 0) {
-    //         return Err(CqfError::InvalidArguments);
-    //     }
-    //     if self.occupied_slots() >= self.max_occupied_slots() {
-    //         return Err(CqfError::Filled);
-    //     }
-    //     let (quotient, remainder) = self.quotient_remainder_from_hash(hash);
-
-    //     // Trying something different here
-    //     let run_start = self.blocks.run_start(quotient);
-    //     if !self.blocks.has_metadata_bits_set(quotient) && run_start <= quotient {
-    //         self.blocks.set_occupied(quotient, true);
-    //         *self.blocks.slot_mut(quotient) = remainder;
-    //         self.metadata.num_occupied_slots += 1;
-    //         if count == 1 {
-    //             self.blocks.set_runend(quotient, true);
-    //             return Ok(count);
-    //         }
-    //         let slots_needed = match count.checked_next_power_of_two() {
-    //             Some(n) => (n.trailing_zeros() / Remainder::BITS) as u64 ,
-    //             None => (64/Remainder::BITS) as u64,
-    //         };
-    //         for offset in 1..=slots_needed {
-    //             if self.blocks.has_metadata_bits_set(quotient + offset) {
-    //                 return self.insert_by_hash(hash, count-1);
-    //             }
-    //         }
-    //         self.blocks.set_runend(quotient + slots_needed, true);
-    //         let mut c = count;
-    //         // this needs to be changed for u64
-    //         for offset in 1..=slots_needed {
-    //             let remainder = c & Remainder::MAX;
-    //             c >>= Remainder::BITS;
-    //             *self.blocks.slot_mut(quotient + offset) = remainder as Remainder;
-    //             self.blocks.set_count(quotient + offset, true);
-    //         }
-    //         self.metadata.num_occupied_slots += slots_needed;
-    //         return Ok(count);
-    //     }
-
-    //     todo!()
-    // }
 
     /// Function used internally for merging
     fn merge_insert(
@@ -165,7 +126,6 @@ impl<H: BuildHasher> CountingQuotientFilter for U64SoaCqf<H> {
     }
 
     fn insert_by_hash(&mut self, hash: u64, count: u64) -> Result<(), CqfError> {
-        // println!("insert_by_hash {hash} {count}");
         if count == 0 {
             return Ok(());
         } // nothing to do
@@ -175,14 +135,8 @@ impl<H: BuildHasher> CountingQuotientFilter for U64SoaCqf<H> {
         let (quotient, remainder) = self.quotient_remainder_from_hash(hash);
         let mut runstart_index = self.blocks.run_start(quotient);
         // let runend_index = self.blocks.run_end(quotient);
-        // if runstart_index != runend_index {
-        //     println!("Runstart {runstart_index} Runend {runend_index} Quotient {quotient}");
-        // }
+
         if !self.blocks.has_metadata_bits_set(quotient) && runstart_index == quotient {
-        // if !self.blocks.has_metadata_bits_set(quotient) && runend_index == quotient {
-            // if runstart_index != runend_index {
-            //     println!("Runstart {runstart_index} Runend {runend_index} Quotient {quotient}");
-            // }
             self.blocks.set_runend(quotient, true);
             *self.blocks.slot_mut(quotient) = remainder;
             self.blocks.set_occupied(quotient, true);
@@ -328,7 +282,8 @@ impl<H: BuildHasher> U64SoaCqf<H> {
                 fd = f.as_raw_fd();
                 mmap_flags = libc::MAP_SHARED;
                 if new {
-                    f.set_len(metadata.total_size_bytes as u64).map_err(|_| CqfError::FileError)?;
+                    f.set_len(metadata.total_size_bytes as u64)
+                        .map_err(|_| CqfError::FileError)?;
                 }
             }
             None => {
@@ -380,7 +335,6 @@ impl<H: BuildHasher> U64SoaCqf<H> {
                         if empty / 64 < i {
                             break;
                         }
-                        // println!("setting offset for block");
                         *self.blocks.offset_mut(i * 64) = self.blocks.offset(i * 64) + 1;
                     }
                 }
@@ -531,7 +485,7 @@ impl<H: BuildHasher> Iterator for U64ConsumingIterator<H> {
         let mut next_run_slot = bitselect(self.cqf.blocks.occupieds_by_block(block_index), rank);
         if next_run_slot == 64 {
             rank = 0;
-            while next_run_slot == 64 && block_index < self.cqf.blocks.len()-1 {
+            while next_run_slot == 64 && block_index < self.cqf.blocks.len() - 1 {
                 block_index += 1;
                 next_run_slot = bitselect(self.cqf.blocks.occupieds_by_block(block_index), rank);
             }
