@@ -252,18 +252,13 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
                     0,
                 );
             } else {
-                let (mut current_remainder, mut current_count): (u64, u64) = (0, 0);
                 let mut qptr = runstart_index;
-                self.blocks
-                    .decode_counter(&mut qptr, &mut current_remainder, &mut current_count);
+                let (mut current_remainder, mut current_count) =
+                    self.blocks.decode_counter(&mut qptr);
                 while current_remainder < remainder && !self.blocks.is_runend(qptr) {
                     runstart_index = qptr + 1;
                     qptr = runstart_index;
-                    self.blocks.decode_counter(
-                        &mut qptr,
-                        &mut current_remainder,
-                        &mut current_count,
-                    )
+                    (current_remainder, current_count) = self.blocks.decode_counter(&mut qptr);
                 }
 
                 if current_remainder < remainder {
@@ -314,12 +309,9 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
             runstart_index = quotient;
         }
         // let mut current_end: u64;
-        let mut current_remainder: u64 = 0;
-        let mut current_count: u64 = 0;
         loop {
             let mut qptr = runstart_index;
-            self.blocks
-                .decode_counter(&mut qptr, &mut current_remainder, &mut current_count);
+            let (current_remainder, current_count) = self.blocks.decode_counter(&mut qptr);
             // current_end = self.blocks.decode_counter(
             //     runstart_index,
             //     &mut current_remainder,
@@ -340,15 +332,12 @@ impl<H: BuildHasher> CountingQuotientFilter for U64Cqf<H> {
         let (quotient, remainder) = self.quotient_remainder_from_hash(hash);
         // let runend_index = self.run_end(quotient);
         let mut runstart_index = self.blocks.run_start(quotient);
-        let (mut current_remainder, mut current_count): (u64, u64) = (0, 0);
         let mut qptr = runstart_index;
-        self.blocks
-            .decode_counter(&mut qptr, &mut current_remainder, &mut current_count);
+        let (mut current_remainder, _) = self.blocks.decode_counter(&mut qptr);
 
         while current_remainder < remainder && !self.blocks.is_runend(qptr) {
             runstart_index = qptr + 1;
-            self.blocks
-                .decode_counter(&mut qptr, &mut current_remainder, &mut current_count);
+            (current_remainder, _) = self.blocks.decode_counter(&mut qptr);
         }
         // println!("setting");
         if current_remainder == remainder {
@@ -619,13 +608,8 @@ impl<'a, H: BuildHasher> Iterator for U64RefIterator<'a, H> {
             // self.cqf.blocks.advise_normal();
             return None;
         }
-        let mut current_remainder: u64 = 0;
-        let mut current_count: u64 = 0;
-        self.cqf.blocks.decode_counter(
-            &mut self.current_quotient,
-            &mut current_remainder,
-            &mut current_count,
-        );
+        let (current_remainder, current_count) =
+            self.cqf.blocks.decode_counter(&mut self.current_quotient);
         let current_hash = self
             .cqf
             .build_hash(self.current_run_start, current_remainder);
@@ -659,13 +643,8 @@ impl<H: BuildHasher> Iterator for U64ConsumingIterator<H> {
             // self.cqf.blocks.advise_normal();
             return None;
         }
-        let mut current_remainder: u64 = 0;
-        let mut current_count: u64 = 0;
-        self.cqf.blocks.decode_counter(
-            &mut self.current_quotient,
-            &mut current_remainder,
-            &mut current_count,
-        );
+        let (current_remainder, current_count) =
+            self.cqf.blocks.decode_counter(&mut self.current_quotient);
         let current_hash = self
             .cqf
             .build_hash(self.current_run_start, current_remainder);

@@ -25,7 +25,8 @@ pub trait Blocks {
     }
 
     // Assumes quotient holds a remainder
-    fn decode_counter(&self, quotient: &mut u64, remainder: &mut Self::Remainder, count: &mut u64);
+    fn decode_counter(&self, quotient: &mut u64) -> (Self::Remainder, u64);
+
     #[inline]
     fn run_end(&self, quotient: u64) -> u64 {
         let (block_index, slot_index) = Self::split_quotient(quotient);

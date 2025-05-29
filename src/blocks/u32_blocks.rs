@@ -42,15 +42,15 @@ impl Blocks for U32Blocks {
     }
 
     #[inline(always)]
-    fn decode_counter(&self, quotient: &mut u64, remainder: &mut Self::Remainder, count: &mut u64) {
+    fn decode_counter(&self, quotient: &mut u64) -> (Self::Remainder, u64) {
         let (block_index, slot_index) = Self::split_quotient(*quotient);
-        *remainder = *self.slot_by_block(block_index, slot_index);
-        if self.is_runend(*quotient) || !self.is_count(*quotient + 1) {
-            *count = 1;
+        let remainder = *self.slot_by_block(block_index, slot_index);
+        let count = if self.is_runend(*quotient) || !self.is_count(*quotient + 1) {
+            1
         } else {
             // Only works for u64
-            *count = *self.slot(*quotient + 1) as u64;
             *quotient += 1;
+            *self.slot(*quotient) as u64
             // let mut qptr = *quotient + 1;
             // let mut c: u64 = 0;
             // while self.is_count(qptr) {
@@ -60,7 +60,8 @@ impl Blocks for U32Blocks {
             // }
             // *quotient = qptr;
             // *count = c;
-        }
+        };
+        (remainder, count)
     }
 
     #[inline(always)]
