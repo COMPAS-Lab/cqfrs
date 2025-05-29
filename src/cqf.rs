@@ -1,31 +1,21 @@
 use std::fs::File;
 use std::hash::{BuildHasher, Hash};
+use std::ptr::{NonNull, Unique};
 
 use crate::SLOTS_PER_BLOCK;
 
 /// Owns Metadata (through a pointer)
-struct MetadataWrapper(std::ptr::Unique<Metadata>);
+struct MetadataWrapper(Unique<Metadata>);
 
 impl MetadataWrapper {
-    // FIXME: check if this invariant is correct
-    /// # Safety
-    /// The pointer must be valid for the lifetime of the wrapper and must be non-null.
-    pub unsafe fn from_raw(ptr: *mut Metadata) -> Result<Self, &'static str> {
-        std::ptr::Unique::new(ptr)
-            .ok_or("Called with null pointer")
-            .map(|unique| Self(unique))
+    pub fn from_non_null(ptr: NonNull<Metadata>) -> Self {
+        MetadataWrapper(Unique::from_non_null(ptr))
     }
     pub fn as_ref(&self) -> &Metadata {
         unsafe { self.0.as_ref() }
     }
     pub fn as_mut(&mut self) -> &mut Metadata {
         unsafe { self.0.as_mut() }
-    }
-    pub fn as_ptr(&self) -> *const Metadata {
-        self.0.as_ptr()
-    }
-    pub fn as_mut_ptr(&mut self) -> *mut Metadata {
-        self.0.as_ptr()
     }
 }
 
@@ -34,7 +24,7 @@ impl From<*mut Metadata> for MetadataWrapper {
     /// The metadata pointer passed in must be valid, this takes ownership of
     /// the metadata object.
     fn from(metadata: *mut Metadata) -> Self {
-        unsafe { MetadataWrapper::from_raw(metadata).expect("null pointer") }
+        MetadataWrapper::from_non_null(NonNull::new(metadata).expect("pointer should not be null"))
     }
 }
 
